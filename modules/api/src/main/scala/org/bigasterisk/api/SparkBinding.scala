@@ -49,6 +49,9 @@ trait SparkBinding {
   /** Step-through SQL debugging for this Spark version. */
   def desql: DeSqlSupport
 
+  /** On-demand watchpoints over intermediate data for this Spark version. */
+  def watchpoints: WatchpointSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

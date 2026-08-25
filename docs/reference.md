@@ -61,7 +61,7 @@ mkdocs build                 # static site -> site/
 
 | flag | values | effect |
 |---|---|---|
-| `spark.sql.extensions` | `org.apache.spark.sql.lineage.TitianSQLExtension` | register SQL capture |
+| `spark.sql.extensions` | `…lineage.TitianSQLExtension`, `…watchpoint.WatchpointExtension` | register the tools' planning hooks (comma-separated; `BigAsterisk.configure` sets both) |
 | `spark.titian.sql.capture` | `true` \| `false` (default `false`) | toggle SQL capture per query; off = verified no-op |
 | `spark.titian.lineage.storageLevel` | a `StorageLevel` (default `MEMORY_AND_DISK_SER`) | where lineage blocks live |
 | `spark.titian.ablation` | CSV of `legacyHash`, `boxedCombiner`, `boxedJoinBuffer`, `boxedBlocks`, `driverTrace` (default empty) | turn individual optimizations **off** — see [Ablation](ablation.md) |
@@ -71,7 +71,7 @@ mkdocs build                 # static site -> site/
 ```bash
 spark-submit \
   --jars titian.jar,fastutil.jar \
-  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
+  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.watchpoint.WatchpointExtension \
   --conf spark.titian.sql.capture=true \
   your-app.jar
 ```

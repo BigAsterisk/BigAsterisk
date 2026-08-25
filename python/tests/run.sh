@@ -67,7 +67,6 @@ submit() {
   BIGASTERISK_HOME="$ROOT" "$SPARK_HOME/bin/spark-submit" \
     --master 'local[2]' \
     --jars "$JARS" \
-    --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
     --py-files "$PYZIP" \
     "$1"
 }
@@ -75,3 +74,4 @@ submit() {
 submit "$ROOT/python/tests/test_lineage_pyspark.py"
 submit "$ROOT/python/tests/test_bigsift_pyspark.py"
 submit "$ROOT/python/tests/test_desql_pyspark.py"
+submit "$ROOT/python/tests/test_watchpoint_pyspark.py"

@@ -24,6 +24,8 @@ written for.
 - :material-bug-check: **[BigSift](bigsift.md)** — the minimal fault-inducing input set.
 - :material-step-forward: **[DeSQL](desql.md)** — step through a SQL query and inspect
   the intermediate data at each part.
+- :material-eye-outline: **[BigDebug](bigdebug.md)** — watchpoints on the records
+  flowing through a query.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -57,13 +59,14 @@ is wrong.
 
 ## Tools
 
-**integrated** means it builds, runs, and is covered by tests in this repository.
+**integrated** means it builds, runs, and is covered by tests in this repository;
+**partial** means some of the paper's primitives are, and the tool's page says which.
 
 | Tool | What it does | Status |
 |---|---|---|
 | [Titian](titian.md) | Record-level provenance, backward and forward | **integrated** |
 | [BigSift](bigsift.md) | Minimum failure-inducing input set | **integrated** |
-| BigDebug | Simulated breakpoints and on-demand watchpoints | planned |
+| [BigDebug](bigdebug.md) | On-demand watchpoints over distributed intermediate data | **partial** |
 | FlowDebug | Influence-based provenance, taint inside UDFs | planned |
 | OptDebug | Ranks the operations behind a wrong result | planned |
 | PerfDebug | Attributes computation skew to the records causing it | planned |

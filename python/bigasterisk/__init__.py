@@ -38,6 +38,7 @@ the Python path (``--py-files``).
 from bigasterisk.lineage import Lineage, TraceCursor
 from bigasterisk.bigsift import BigSift, BigSiftResult, ddmin
 from bigasterisk.desql import DeSql, QueryStep
+from bigasterisk.watchpoint import Watchpoint, Watchpoints
 
 __all__ = [
     "configure",
@@ -51,16 +52,23 @@ __all__ = [
     "desql",
     "DeSql",
     "QueryStep",
+    "watchpoints",
+    "Watchpoint",
+    "Watchpoints",
 ]
 
-#: The ``spark.sql.extensions`` entry the Spark 4 binding installs. Kept here so
-#: :func:`configure` can run before a JVM exists — at that point there is no gateway
-#: to ask, because Spark reads ``spark.sql.extensions`` while building the session.
-_SPARK4_EXTENSION = "org.apache.spark.sql.lineage.TitianSQLExtension"
+#: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
+#: ``Spark4Binding.extensionClassNames``. Kept here rather than read from the JVM
+#: because :func:`configure` runs before a gateway exists — Spark reads
+#: ``spark.sql.extensions`` while building the session, so it cannot be set afterwards.
+_SPARK4_EXTENSIONS = (
+    "org.apache.spark.sql.lineage.TitianSQLExtension",
+    "org.apache.spark.sql.watchpoint.WatchpointExtension",
+)
 
 
-def configure(builder, extension=_SPARK4_EXTENSION):
-    """Add the BigAsterisk SQL extension to a ``SparkSession.Builder``.
+def configure(builder, extensions=_SPARK4_EXTENSIONS):
+    """Add the BigAsterisk SQL extensions to a ``SparkSession.Builder``.
 
     Spark reads ``spark.sql.extensions`` when the session is built, so this must be
     called before ``getOrCreate()``. Any extensions already configured on the builder
@@ -70,14 +78,18 @@ def configure(builder, extension=_SPARK4_EXTENSION):
 
         spark = bigasterisk.configure(SparkSession.builder.master("local[*]")).getOrCreate()
     """
+    if isinstance(extensions, str):
+        extensions = (extensions,)
     # `_options` is PySpark-internal; fall back to appending blind if it ever moves,
     # which is still correct for the common case of nothing else being configured.
     options = getattr(builder, "_options", None)
     existing = options.get("spark.sql.extensions", "") if isinstance(options, dict) else ""
     entries = [e.strip() for e in str(existing).split(",") if e.strip()]
-    if extension not in entries:
-        entries.append(extension)
+    for extension in extensions:
+        if extension not in entries:
+            entries.append(extension)
     return builder.config("spark.sql.extensions", ",".join(entries))
+
 
 
 def bindings(spark):
@@ -109,3 +121,16 @@ def desql(spark):
             step.data.show()
     """
     return DeSql(spark)
+
+
+def watchpoints(spark):
+    """On-demand watchpoints for ``spark``.
+
+    Guard the intermediate data of a query and see which records match, without
+    collecting the intermediate dataset::
+
+        wp = bigasterisk.watchpoints(spark).watch(orders, col("amount") > 10000)
+        wp.df.groupBy("cid").sum("amount").collect()
+        print(wp.hits, wp.captured)
+    """
+    return Watchpoints(spark)

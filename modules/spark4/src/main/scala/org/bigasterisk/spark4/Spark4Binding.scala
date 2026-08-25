@@ -4,8 +4,9 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor}
+import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -26,7 +27,7 @@ class Spark4Binding extends SparkBinding {
   override def sparkVersions: String = "[4.0.0,5.0.0)"
 
   override def requiredConf: Map[String, String] = Map(
-    "spark.sql.extensions" -> classOf[org.apache.spark.sql.lineage.TitianSQLExtension].getName
+    "spark.sql.extensions" -> Spark4Binding.extensionClassNames.mkString(",")
   )
 
   override def validate(spark: SparkSession): Unit =
@@ -35,12 +36,24 @@ class Spark4Binding extends SparkBinding {
   override val lineage: LineageSupport = new Spark4Lineage
 
   override val desql: DeSqlSupport = new DeSqlEngine
+
+  override val watchpoints: WatchpointSupport = new Spark4Watchpoints
 }
 
 object Spark4Binding {
 
-  /** Fully qualified name of the `SparkSessionExtensions` this binding installs. */
-  val extensionClassName: String = classOf[org.apache.spark.sql.lineage.TitianSQLExtension].getName
+  /**
+   * The `SparkSessionExtensions` this binding installs.
+   *
+   * Spark accepts a comma-separated list, so each tool's planning hooks stay
+   * independent of the others'.
+   */
+  val extensionClassNames: Seq[String] = Seq(
+    classOf[org.apache.spark.sql.lineage.TitianSQLExtension].getName,
+    classOf[org.apache.spark.sql.watchpoint.WatchpointExtension].getName)
+
+  /** The lineage extension, kept as a named constant for diagnostics and docs. */
+  val extensionClassName: String = extensionClassNames.head
 
   /**
    * Checks that `configured` — the session's `spark.sql.extensions` — installs this
@@ -54,17 +67,22 @@ object Spark4Binding {
    */
   def checkExtensions(configured: Option[String]): Unit = {
     val extensions = configured.getOrElse("")
-    if (!extensions.split(',').map(_.trim).contains(extensionClassName)) {
+    val present = extensions.split(',').map(_.trim).toSet
+    val missing = extensionClassNames.filterNot(present.contains)
+    if (missing.nonEmpty) {
       throw new IllegalStateException(
-        s"""This SparkSession was created without the BigAsterisk SQL extension, so no
-           |lineage can be captured. Spark reads spark.sql.extensions when the session is
-           |built, which is why it cannot be set afterwards.
+        s"""This SparkSession was created without ${if (missing.length == 1) "a BigAsterisk"
+             else "the BigAsterisk"} SQL extension, so ${if (missing.length == 1) "that tool"
+             else "those tools"} cannot attach. Spark reads spark.sql.extensions when the
+           |session is built, which is why it cannot be set afterwards.
+           |
+           |Missing: ${missing.mkString(", ")}
            |
            |Build the session through BigAsterisk.configure:
            |    val spark = BigAsterisk.configure(SparkSession.builder()).getOrCreate()
            |
            |or set it yourself before creating the session:
-           |    .config("spark.sql.extensions", "$extensionClassName")
+           |    .config("spark.sql.extensions", "${extensionClassNames.mkString(",")}")
            |
            |Currently set: ${if (extensions.isEmpty) "<unset>" else extensions}""".stripMargin)
     }

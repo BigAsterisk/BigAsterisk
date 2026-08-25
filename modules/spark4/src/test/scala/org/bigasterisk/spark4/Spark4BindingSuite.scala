@@ -56,9 +56,14 @@ class Spark4BindingSuite extends AnyFunSuite with Matchers with BeforeAndAfterAl
       Spark4Binding.checkExtensions(Some("com.example.OtherExtension"))
     other.getMessage should include("com.example.OtherExtension")
 
-    // ours alongside another is accepted
+    // every required extension must be present; naming only one is not enough
+    val partial = the[IllegalStateException] thrownBy
+      Spark4Binding.checkExtensions(Some(Spark4Binding.extensionClassName))
+    partial.getMessage should include("Missing:")
+
+    // all of them, alongside an unrelated extension, is accepted
     noException should be thrownBy Spark4Binding.checkExtensions(
-      Some(s"com.example.OtherExtension,${Spark4Binding.extensionClassName}"))
+      Some(("com.example.OtherExtension" +: Spark4Binding.extensionClassNames).mkString(",")))
   }
 
   test("provenance round-trips through the version-independent API") {

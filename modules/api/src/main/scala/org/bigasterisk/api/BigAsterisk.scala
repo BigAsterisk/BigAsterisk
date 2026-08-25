@@ -1,6 +1,7 @@
 package org.bigasterisk.api
 
 import java.util.ServiceLoader
+import java.util.concurrent.ConcurrentHashMap
 
 import scala.jdk.CollectionConverters._
 
@@ -30,19 +31,31 @@ import org.apache.spark.sql.SparkSession
  * @groupname spi Service provider interface
  * @groupname lineage Data provenance
  * @groupname desql Step-through SQL debugging
+ * @groupname watchpoint Watchpoints
  */
 object BigAsterisk {
 
   /**
    * Every [[SparkBinding]] on the classpath, in discovery order.
    *
-   * Recomputed on each call so that bindings added to a live classpath (a notebook
-   * `%AddJar`, a REPL `:require`) are picked up without a restart.
+   * `ServiceLoader` constructs a fresh instance of each provider per call, so this is a
+   * discovery mechanism, not a way to reach a binding's state. Use [[bindingFor]] or
+   * [[binding]], which return the one stable instance per Spark version.
    *
    * @group spi
    */
   def bindings: Seq[SparkBinding] =
     ServiceLoader.load(classOf[SparkBinding], getClass.getClassLoader).asScala.toSeq
+
+  /**
+   * One binding instance per Spark version, for the lifetime of the JVM.
+   *
+   * Bindings hold state that must not be recreated underneath a caller — the registry
+   * of live watchpoints, for one — so resolution has to be stable. A failed lookup is
+   * not cached, which leaves the door open for a binding jar added to a live classpath
+   * (a notebook `%AddJar`, a REPL `:require`) to be found on a later call.
+   */
+  private val resolved = new ConcurrentHashMap[String, SparkBinding]()
 
   /**
    * The binding that supports `sparkVersion`.
@@ -51,7 +64,8 @@ object BigAsterisk {
    *         mismatch is obvious from the message alone.
    * @group spi
    */
-  def bindingFor(sparkVersion: String): SparkBinding = select(bindings, sparkVersion)
+  def bindingFor(sparkVersion: String): SparkBinding =
+    resolved.computeIfAbsent(sparkVersion, v => select(bindings, v))
 
   /**
    * Chooses the binding for `sparkVersion` out of `candidates`.
@@ -140,4 +154,12 @@ object BigAsterisk {
    * @group desql
    */
   def desql(spark: SparkSession): DeSqlSupport = binding(spark).desql
+
+  /**
+   * On-demand watchpoints for `spark`: guard the intermediate data of a query and see
+   * which records match, without collecting the intermediate dataset.
+   *
+   * @group watchpoint
+   */
+  def watchpoints(spark: SparkSession): WatchpointSupport = binding(spark).watchpoints
 }

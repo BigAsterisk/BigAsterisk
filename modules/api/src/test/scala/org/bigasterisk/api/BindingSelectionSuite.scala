@@ -12,6 +12,7 @@ class BindingSelectionSuite extends AnyFunSuite with Matchers {
     def requiredConf: Map[String, String] = Map.empty
     def lineage: LineageSupport = throw new UnsupportedOperationException
     def desql: DeSqlSupport = throw new UnsupportedOperationException
+    def watchpoints: WatchpointSupport = throw new UnsupportedOperationException
     def validate(spark: SparkSession): Unit = ()
   }
 

@@ -43,6 +43,7 @@ nav:
       - Titian (data provenance): titian.md
       - BigSift (automated debugging): bigsift.md
       - DeSQL (step-through SQL): desql.md
+      - BigDebug (watchpoints): bigdebug.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md

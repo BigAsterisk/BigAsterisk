@@ -55,13 +55,14 @@ is supported where the original technique required it.
 ## Tools
 
 Status is reported honestly: **integrated** means it builds, runs, and is covered by
-tests in this repository.
+tests in this repository; **partial** means some of the paper's primitives are, and the
+tool's page says which.
 
 | Tool | What it does | Input | Status |
 |---|---|---|---|
 | [Titian](docs/titian.md) | Record-level provenance, backward and forward | application | **integrated** |
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
-| BigDebug | Simulated breakpoints and on-demand watchpoints over distributed intermediate data | application | planned |
+| [BigDebug](docs/bigdebug.md) | On-demand watchpoints over distributed intermediate data | application | **partial** — watchpoints; breakpoints pending |
 | FlowDebug | Influence-based provenance, taint propagated inside UDFs | application | planned |
 | OptDebug | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | planned |
 | PerfDebug | Attributes computation skew to the records causing it | execution metrics | planned |
@@ -94,7 +95,7 @@ To use BigAsterisk from your own application:
 ```bash
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar \
-  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
+  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.watchpoint.WatchpointExtension \
   your-app.jar
 ```
 

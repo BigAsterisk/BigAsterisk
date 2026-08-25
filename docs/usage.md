@@ -118,7 +118,7 @@ Runnable demos live in `examples/` (`SalesAnalysis`, `OrderCustomerJoin`).
 ```bash
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar,fastutil.jar \
-  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
+  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.watchpoint.WatchpointExtension \
   your-app.jar
 ```
 

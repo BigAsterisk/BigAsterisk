@@ -11,6 +11,8 @@ repositories remain the historical record; they are not modified by this project
 
 - **integrated** — builds, runs, and is covered by tests in this repository
 - **planned** — artifact gathered and analysed; migration not yet done
+- **partial** — some of the paper's primitives are implemented and tested; the tool's
+  documentation page says which, and why the rest are outstanding
 - **integrated (reimplemented)** — the technique is implemented and tested here, but
   the upstream source could not be ported because it depended on a forked Spark; the
   upstream artifact was used as the specification and cross-check
@@ -23,7 +25,7 @@ repositories remain the historical record; they are not modified by this project
 |---|---|---|---|---|---|
 | Titian | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
 | BigSift | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
-| BigDebug | planned | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
+| BigDebug | partial (watchpoints) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
 | FlowDebug | planned | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | planned | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | planned | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
@@ -63,15 +65,37 @@ Deviations from the published Titian design are documented in
 capture is implemented with codegen-fused tap operators, a mechanism that did not exist
 in the paper because the paper predates whole-stage codegen being a capture surface.
 
-### BigDebug — planned
+### BigDebug — partial: watchpoints implemented
 
 The debugging primitives (`org.apache.spark.bdd`, roughly 2,600 lines) were never part
-of the earlier migration. They are the one component that cannot be ported mechanically:
-the original implements simulated breakpoints and on-demand watchpoints through a
-**forked executor backend** (`BDExecutorBackend`, `BDDriverBackend`) that intercepts task
-execution inside Spark. Reproducing the behaviour without forking Spark requires
-re-implementing it on supported extension points. This is a re-architecture, and it is
-tracked as such rather than as a port.
+of the earlier migration, and they cannot be ported mechanically: the original works
+through a **forked executor backend** (`BDExecutorBackend`, `BDDriverBackend`) that
+intercepts task execution inside Spark.
+
+**On-demand watchpoints are implemented**, for Spark SQL and PySpark. Three mechanisms
+in the original each needed the fork, and each has a stock-Spark equivalent:
+
+| Original | Needed a fork because | Replacement |
+|---|---|---|
+| Predicate shipped as bytecode, hot-loaded via `AbstractFileClassLoader` (`WatchpointManager.writePredicateClass`) | class files written to `/tmp` on each executor and loaded out of band | the guard is a Catalyst expression, which Spark already serializes with the plan |
+| Matches streamed by `SendWatchpointDataToDriver`, added to `CoarseGrainedClusterMessages` | a new message in Spark's RPC protocol | `AccumulatorV2`, Spark's own executor-to-driver channel |
+| Capture attached by a patched task iterator (`BDIterator`, `WatchPointLRDD`) | task execution intercepted inside Spark | a `SparkPlan` operator injected through `spark.sql.extensions`, fused into whole-stage codegen |
+
+Deliberate differences from the upstream implementation:
+
+- **Bounded capture.** The original sent every matching record to the driver. Here
+  matches are counted in full but only `capacity` rows are retained, so a guard that
+  matches a billion rows reports its true selectivity without moving a billion rows.
+- **Column pruning is suppressed through the watchpoint**, so captured rows keep the
+  schema of the DataFrame that was watched rather than whatever the rest of the query
+  happened to need.
+- **No live predicate replacement.** The original could swap a watchpoint's predicate on
+  a running job by pushing new bytecode. Here a new guard means a new watchpoint.
+
+Still outstanding, and tracked as re-architecture rather than as a port: **simulated
+breakpoints**, **crash-culprit determination**, and **fine-grained latency alerts**.
+The first two rest on the same task-level interception the forked executor backend
+provided; the third overlaps with PerfDebug.
 
 ### FlowDebug and OptDebug — planned
 
