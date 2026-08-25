@@ -4,11 +4,12 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.influence.InfluenceEngine
 import org.apache.spark.sql.perfdebug.PerfDebugEngine
 import org.apache.spark.sql.vega.VegaEngine
 import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{DeSqlSupport, LineageSupport, PerfDebugSupport, SparkBinding, TraceCursor, VegaSupport, WatchpointSupport}
+import org.bigasterisk.api.{DeSqlSupport, InfluenceSupport, LineageSupport, PerfDebugSupport, SparkBinding, TraceCursor, VegaSupport, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -44,6 +45,8 @@ class Spark4Binding extends SparkBinding {
   override val vega: VegaSupport = new VegaEngine()
 
   override val perfdebug: PerfDebugSupport = new PerfDebugEngine
+
+  override val influence: InfluenceSupport = new InfluenceEngine
 }
 
 object Spark4Binding {

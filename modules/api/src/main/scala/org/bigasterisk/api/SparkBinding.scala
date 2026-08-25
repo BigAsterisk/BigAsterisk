@@ -58,6 +58,9 @@ trait SparkBinding {
   /** Computation-skew profiling for this Spark version. */
   def perfdebug: PerfDebugSupport
 
+  /** Influence-based provenance for this Spark version. */
+  def influence: InfluenceSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

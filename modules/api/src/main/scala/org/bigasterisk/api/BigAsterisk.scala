@@ -34,6 +34,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname watchpoint Watchpoints
  * @groupname vega Incremental re-execution
  * @groupname perfdebug Performance debugging
+ * @groupname influence Influence-based provenance
  */
 object BigAsterisk {
 
@@ -180,4 +181,12 @@ object BigAsterisk {
    * @group perfdebug
    */
   def perfdebug(spark: SparkSession): PerfDebugSupport = binding(spark).perfdebug
+
+  /**
+   * Influence-based provenance for `spark`: of the records behind a result, which ones
+   * actually mattered.
+   *
+   * @group influence
+   */
+  def influence(spark: SparkSession): InfluenceSupport = binding(spark).influence
 }

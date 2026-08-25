@@ -32,6 +32,8 @@ written for.
   fault, not just which records.
 - :material-speedometer: **[PerfDebug](perfdebug.md)** — which records cost
   abnormally much to process.
+- :material-scale-balance: **[FlowDebug](flowdebug.md)** — of the records behind a
+  result, which ones actually mattered.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -73,7 +75,7 @@ is wrong.
 | [Titian](titian.md) | Record-level provenance, backward and forward | **integrated** |
 | [BigSift](bigsift.md) | Minimum failure-inducing input set | **integrated** |
 | [BigDebug](bigdebug.md) | On-demand watchpoints over distributed intermediate data | **partial** |
-| FlowDebug | Influence-based provenance, taint inside UDFs | planned |
+| [FlowDebug](flowdebug.md) | Influence-based provenance, taint inside UDFs | **partial** |
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
 | [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |

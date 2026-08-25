@@ -47,6 +47,7 @@ nav:
       - Vega (incremental re-execution): vega.md
       - OptDebug (operation isolation): optdebug.md
       - PerfDebug (computation skew): perfdebug.md
+      - FlowDebug (influence-based provenance): flowdebug.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md

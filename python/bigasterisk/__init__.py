@@ -42,6 +42,7 @@ from bigasterisk.watchpoint import Watchpoint, Watchpoints
 from bigasterisk.vega import Vega, VegaRun
 from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
 from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
+from bigasterisk.influence import Influence, InfluenceProvenance
 
 __all__ = [
     "configure",
@@ -69,6 +70,9 @@ __all__ = [
     "PerfDebug",
     "PerfProfile",
     "RecordCost",
+    "influence",
+    "Influence",
+    "InfluenceProvenance",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -185,3 +189,14 @@ def perfdebug(spark):
         print(profile.skew, profile.slowest[0])
     """
     return PerfDebug(spark)
+
+
+def influence(spark):
+    """Influence-based provenance for ``spark``.
+
+    Of the records behind a result, which ones actually mattered::
+
+        ranked = bigasterisk.influence(spark).influencers(query, faulty_where="peak > 1000")
+        print(ranked[0])
+    """
+    return InfluenceProvenance(spark)

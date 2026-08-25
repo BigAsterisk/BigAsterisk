@@ -26,7 +26,7 @@ repositories remain the historical record; they are not modified by this project
 | Titian | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
 | BigSift | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
 | BigDebug | partial (watchpoints) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
-| FlowDebug | planned | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
+| FlowDebug | partial (reimplemented) | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | partial (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
@@ -97,17 +97,41 @@ breakpoints**, **crash-culprit determination**, and **fine-grained latency alert
 The first two rest on the same task-level interception the forked executor backend
 provided; the third overlaps with PerfDebug.
 
-### FlowDebug — planned
+### FlowDebug — partial: influence-based provenance implemented
 
-FlowDebug already follows the attach-as-a-library approach BigAsterisk standardises on:
-it wraps `SparkContext` and `RDD` rather than patching Spark, so no fork is involved.
-The work is a Scala 2.11 → 2.13 and Spark 2.x → 4.x update, plus a decision about what
-"taint inside a UDF" means when the front end is SQL rather than an RDD chain.
+The paper has two halves. Where each stands:
 
-Note that FlowDebug and the upstream OptDebug share roughly 90% of their source — the
+| Contribution | Status |
+|---|---|
+| Influence-based provenance for many-to-one dependencies: rank a result's inputs by how much each contributed, from the aggregate's semantics | **implemented for SQL** |
+| Fine-grained taint inside user-defined functions, inserted by source-to-source transformation | **not implemented** |
+
+The influence half maps directly onto SQL, because a SQL aggregate's semantics are
+known in advance: only the largest record influences a `MAX`, and a record's influence
+on a `SUM` is the magnitude of its contribution. No taint and no re-execution are
+needed — the ranking is read off the values entering the aggregation in a single pass.
+For a `MAX` over a group of n records, provenance returns n and influence returns 1,
+which is the precision improvement the paper reports.
+
+The taint half has no counterpart under a SQL front end: the upstream implementation
+rewrites the user's Scala program (`refactor/ProvenanceInserter.scala`,
+`symbolicprimitives/`), and a SQL query is not a program to rewrite while a Python UDF
+is opaque to the JVM. The nearest equivalent in this repository is OptDebug's branch
+scoring, which distinguishes records by which arm of a `CASE WHEN` or `Filter` they
+took — inside the query's own expressions, though not inside a UDF.
+
+Note that the upstream FlowDebug and OptDebug share roughly 90% of their source — the
 `provenance`, `symbolicprimitives` and `sparkwrapper` packages are near-identical
-copies. Migrating FlowDebug should produce the shared taint-provenance core that a
-fuller OptDebug would also use.
+copies. Neither was ported: both were re-derived for SQL, which is why no shared
+taint-provenance core appears here.
+
+Deliberate differences from the upstream implementation:
+
+- **Aggregations only.** A query with no many-to-one dependency is reported as such,
+  since provenance is already exact for it.
+- **The group is collected to the driver.** Practical for explaining one suspicious
+  result, not for scoring every group of a large table.
+- **The topmost aggregation is the one analysed** when a query nests several.
 
 ### OptDebug — partial, reimplemented for SQL
 
