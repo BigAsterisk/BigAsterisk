@@ -134,7 +134,7 @@ PySpark users ship `python/bigasterisk` with `--py-files` and use
 | `python/bigasterisk` | PySpark front end |
 | `examples` | The platform tour, plus per-tool demos and benchmarks |
 | `tpcds` | TPC-DS coverage harness and re-execution oracle |
-| `notebooks` | End-to-end notebooks (SQL, PySpark, RDD) |
+| `notebooks` | A runnable notebook for each tool, executed in CI |
 | `docs` | Documentation site (`mkdocs serve`) |
 
 ## Publications

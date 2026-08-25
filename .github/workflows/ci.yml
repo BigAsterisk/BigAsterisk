@@ -114,6 +114,13 @@ jobs:
       - name: Run PySpark tests
         run: python/tests/run.sh
 
+      # Every notebook ends in assertions, so executing them is a real check that the
+      # tools still do what the notebooks say — not a smoke test.
+      - name: Execute notebooks
+        run: |
+          pip install nbconvert ipykernel
+          NOTEBOOK_PYTHON=$(which python) scripts/validate-notebooks.sh
+
   docs:
     name: Documentation
     runs-on: ubuntu-latest
