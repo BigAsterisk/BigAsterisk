@@ -51,7 +51,7 @@ jar() {
   echo "$found"
 }
 
-JARS="$(jar api),$(jar spark4),$(jar bigsift)"
+JARS="$(jar api),$(jar spark4),$(jar bigsift),$(jar optdebug)"
 FASTUTIL_JAR="$(find "$HOME/Library/Caches/Coursier" "$HOME/.cache/coursier" \
   -name 'fastutil-8.5.15.jar' 2>/dev/null | head -1)"
 [ -n "$FASTUTIL_JAR" ] && JARS="$JARS,$FASTUTIL_JAR"
@@ -76,3 +76,4 @@ submit "$ROOT/python/tests/test_bigsift_pyspark.py"
 submit "$ROOT/python/tests/test_desql_pyspark.py"
 submit "$ROOT/python/tests/test_watchpoint_pyspark.py"
 submit "$ROOT/python/tests/test_vega_pyspark.py"
+submit "$ROOT/python/tests/test_optdebug_pyspark.py"

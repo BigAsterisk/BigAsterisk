@@ -64,7 +64,7 @@ tool's page says which.
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
 | [BigDebug](docs/bigdebug.md) | On-demand watchpoints over distributed intermediate data | application | **partial** — watchpoints; breakpoints pending |
 | FlowDebug | Influence-based provenance, taint propagated inside UDFs | application | planned |
-| OptDebug | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | planned |
+| [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — spectra over operators and branches |
 | PerfDebug | Attributes computation skew to the records causing it | execution metrics | planned |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |
@@ -109,6 +109,7 @@ PySpark users ship `python/bigasterisk` with `--py-files` and use
 | `modules/api` | Version-independent tool API and the `SparkBinding` SPI |
 | `modules/spark4` | Spark 4.x binding: the lineage capture engine (RDD taps and SQL codegen taps) |
 | `modules/bigsift` | Fault-inducing input isolation |
+| `modules/optdebug` | Fault-inducing *operation* isolation (depends only on `api`) |
 | `python/bigasterisk` | PySpark front end |
 | `examples` | Runnable demos and benchmarks |
 | `tpcds` | TPC-DS coverage harness and re-execution oracle |

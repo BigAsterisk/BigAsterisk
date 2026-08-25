@@ -3,12 +3,15 @@ package org.apache.spark.sql.desql
 import scala.collection.mutable
 
 import org.apache.spark.sql.{DataFrame, SparkSession}
-import org.apache.spark.sql.catalyst.expressions.{Expression, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.{CaseWhen, Expression, If, Not, SubqueryExpression}
+import org.apache.spark.sql.catalyst.expressions.AttributeSet
+import org.apache.spark.sql.catalyst.expressions.aggregate.AggregateExpression
 import org.apache.spark.sql.catalyst.plans.logical._
+import org.apache.spark.sql.types.BooleanType
 import org.apache.spark.sql.classic.{Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.types.StructType
 
-import org.bigasterisk.api.{DeSqlSupport, QueryStep}
+import org.bigasterisk.api.{Branch, DeSqlSupport, QueryStep}
 
 /**
  * Step-through debugging for Spark SQL, implemented over stock Catalyst.
@@ -161,6 +164,48 @@ object DeSqlEngine {
   }
 
   /**
+   * The conditional sub-operations of `plan`: each branch its expressions can take.
+   *
+   * A `Filter` contributes its condition and the negation, since taking the "false"
+   * arm is as much a decision as taking the "true" one. `IF` and `CASE WHEN` contribute
+   * each arm's predicate. Nothing else does: an unconditional expression is applied to
+   * every record and so cannot distinguish them.
+   *
+   * Only single-input operators are considered. A join's condition is already reflected
+   * in which rows survive the join, so scoring it separately would double-count.
+   */
+  def branchConditions(plan: LogicalPlan): Seq[Expression] = {
+    if (plan.children.size != 1) return Nil
+
+    def fromExpression(e: Expression): Seq[Expression] = e match {
+      case If(predicate, trueValue, falseValue) =>
+        Seq(predicate, Not(predicate)) ++
+          Seq(trueValue, falseValue).flatMap(fromExpression)
+      case CaseWhen(branches, elseValue) =>
+        branches.flatMap { case (condition, value) =>
+          condition +: fromExpression(value)
+        } ++ elseValue.toSeq.flatMap(fromExpression)
+      case other =>
+        other.children.flatMap(fromExpression)
+    }
+
+    val conditions = plan match {
+      case f: Filter => Seq(f.condition, Not(f.condition))
+      case other     => other.expressions.flatMap(fromExpression)
+    }
+
+    // A branch is only usable if it is a deterministic boolean over the child's own
+    // columns: a non-deterministic predicate would not reproduce, and an aggregate
+    // one cannot be evaluated row by row.
+    val childOutput = AttributeSet(plan.children.head.output)
+    conditions.distinct.filter { c =>
+      c.dataType == BooleanType && c.deterministic &&
+        c.references.subsetOf(childOutput) &&
+        !c.exists(_.isInstanceOf[AggregateExpression])
+    }
+  }
+
+  /**
    * SQL text for an expression, falling back to its `toString` when Catalyst cannot
    * render it (some internal expressions have no SQL form).
    */
@@ -195,6 +240,26 @@ private[desql] class Spark4QueryStep(
     ClassicDataset.ofRows(classic, plan)
   }
 
+  override lazy val branches: Seq[Branch] =
+    DeSqlEngine.branchConditions(plan).map { condition =>
+      new Spark4Branch(condition, plan.children.head, classic)
+    }
+
   override def toString: String =
     s"[$id] $operator ${if (detail.isEmpty) "" else s"— $detail"}"
+}
+
+/** A [[Branch]] backed by one conditional expression of a step. */
+private[desql] class Spark4Branch(
+    private val condition: Expression,
+    private val input: LogicalPlan,
+    private val classic: ClassicSparkSession) extends Branch {
+
+  override def description: String =
+    try condition.sql catch { case _: Throwable => condition.toString }
+
+  override lazy val data: DataFrame =
+    ClassicDataset.ofRows(classic, Filter(condition, input))
+
+  override def toString: String = s"Branch($description)"
 }

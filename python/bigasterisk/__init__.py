@@ -40,6 +40,7 @@ from bigasterisk.bigsift import BigSift, BigSiftResult, ddmin
 from bigasterisk.desql import DeSql, QueryStep
 from bigasterisk.watchpoint import Watchpoint, Watchpoints
 from bigasterisk.vega import Vega, VegaRun
+from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
 
 __all__ = [
     "configure",
@@ -59,6 +60,10 @@ __all__ = [
     "vega",
     "Vega",
     "VegaRun",
+    "optdebug",
+    "OptDebug",
+    "OptDebugResult",
+    "SuspiciousOperation",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -151,3 +156,14 @@ def vega(spark):
         print(r.reused)
     """
     return Vega(spark)
+
+
+def optdebug(spark):
+    """Fault-inducing operation isolation for ``spark``.
+
+    Rank a query's operations by how responsible each looks for a wrong result::
+
+        result = bigasterisk.optdebug(spark).localize(query, faulty_where="total < 0")
+        print(result.prime)
+    """
+    return OptDebug(spark)

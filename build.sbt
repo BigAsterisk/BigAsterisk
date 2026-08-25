@@ -94,6 +94,22 @@ lazy val bigsift = (project in file("modules/bigsift"))
     )
   )
 
+// OptDebug is arithmetic over provenance: it reaches Spark only through `api`, so it
+// carries no dependency on a Spark version. `spark4` is a test-only dependency, there
+// to supply a binding for the suite to run against.
+lazy val optdebug = (project in file("modules/optdebug"))
+  .dependsOn(api, spark4 % "test->compile;test->test")
+  .settings(
+    name := "bigasterisk-optdebug",
+    commonSettings,
+    libraryDependencies ++= sparkProvided ++ sparkTest,
+    Test / envVars ++= Map(
+      "SPARK_HOME" ->
+        ((ThisBuild / baseDirectory).value / "tools" / "spark-4.1.2-bin-hadoop3").getAbsolutePath,
+      "SPARK_SCALA_VERSION" -> "2.13"
+    )
+  )
+
 lazy val examples = (project in file("examples"))
   .dependsOn(api, spark4, bigsift)
   .settings(
@@ -115,11 +131,11 @@ lazy val examples = (project in file("examples"))
 // The manual (mkdocs) links to it as api/index.html; see docs/install.md.
 lazy val root = (project in file("."))
   .enablePlugins(ScalaUnidocPlugin)
-  .aggregate(api, spark4, bigsift, examples)
+  .aggregate(api, spark4, bigsift, optdebug, examples)
   .settings(
     name := "bigasterisk",
     publish / skip := true,
-    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(api, spark4, bigsift),
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(api, spark4, bigsift, optdebug),
     ScalaUnidoc / unidoc / scalacOptions ++= Seq(
       "-doc-title", "BigAsterisk — debugging and testing for Apache Spark",
       "-doc-version", version.value,

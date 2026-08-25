@@ -143,6 +143,52 @@ class DeSqlSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     s.last.schema.fieldNames shouldBe Array("cid", "total")
   }
 
+  test("a filter contributes its condition and the negation as branches") {
+    val filter = steps("SELECT cid FROM orders WHERE amount > 100")
+      .find(_.operator == "Filter").get
+    val descriptions = filter.branches.map(_.description)
+    descriptions.exists(d => d.contains("amount") && d.contains("100")) shouldBe true
+    descriptions.exists(_.contains("NOT")) shouldBe true
+
+    // the two arms partition the input
+    val taken = filter.branches.find(!_.description.contains("NOT")).get
+    val notTaken = filter.branches.find(_.description.contains("NOT")).get
+    taken.data.count() shouldBe 8
+    notTaken.data.count() shouldBe 4
+    taken.data.count() + notTaken.data.count() shouldBe 12
+  }
+
+  test("a CASE WHEN contributes each arm's predicate") {
+    val s = steps(
+      """SELECT cid, SUM(CASE WHEN amount > 1000 THEN -amount ELSE amount END) AS total
+        |FROM orders GROUP BY cid""".stripMargin)
+    val agg = s.find(_.operator == "Aggregate").get
+    val branch = agg.branches.find(_.description.contains("1000"))
+    branch shouldBe defined
+    // exactly one order exceeds 1000
+    branch.get.data.count() shouldBe 1
+  }
+
+  test("steps with no conditional expressions have no branches") {
+    val s = steps("SELECT cid, amount FROM orders")
+    s.filter(_.childIds.nonEmpty).foreach(_.branches shouldBe empty)
+  }
+
+  test("a join's condition is not offered as a branch") {
+    // the join already discriminates by which rows survive it; scoring the condition
+    // separately would double-count
+    val join = steps("SELECT o.oid FROM orders o JOIN customers c ON o.cid = c.cid")
+      .find(_.operator == "Join").get
+    join.branches shouldBe empty
+  }
+
+  test("aggregate expressions are not offered as branches") {
+    // they cannot be evaluated row by row, so they cannot select input rows
+    val agg = steps("SELECT cid, SUM(amount) AS total FROM orders GROUP BY cid")
+      .find(_.operator == "Aggregate").get
+    agg.branches.map(_.description).exists(_.toLowerCase.contains("sum")) shouldBe false
+  }
+
   test("decompose accepts query text directly") {
     val byText = engine.decompose(spark, "SELECT cid FROM orders WHERE amount > 100")
     val byDf = engine.decompose(spark.sql("SELECT cid FROM orders WHERE amount > 100"))

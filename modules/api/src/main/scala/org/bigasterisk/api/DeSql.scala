@@ -41,6 +41,36 @@ trait QueryStep {
    * or joined like any other.
    */
   def data: DataFrame
+
+  /**
+   * The conditional sub-operations of this step — the branches of its filters, `IF`s
+   * and `CASE WHEN`s, each paired with the input rows that take it.
+   *
+   * Empty for steps with no conditional expressions, and for steps with more than one
+   * input (a join's condition is already reflected in which rows survive the join).
+   */
+  def branches: Seq[Branch]
+}
+
+/**
+ * One conditional sub-operation of a step: a branch its expressions can take, and the
+ * input rows that take it.
+ *
+ * A step that passes every row through — a projection, say — tells you nothing about
+ * which records a fault touched. Its *branches* do: of the records entering
+ * `CASE WHEN amount > 1000 THEN -amount ELSE amount END`, only some take the first
+ * arm. Branches are what make an operation's participation observable at the record
+ * level, which is what fault localisation over operations needs.
+ *
+ * @group desql
+ */
+trait Branch {
+
+  /** The condition, as SQL text. */
+  def description: String
+
+  /** The step's input rows that satisfy this branch's condition. */
+  def data: DataFrame
 }
 
 /**

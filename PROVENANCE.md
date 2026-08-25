@@ -27,7 +27,7 @@ repositories remain the historical record; they are not modified by this project
 | BigSift | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
 | BigDebug | partial (watchpoints) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
 | FlowDebug | planned | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
-| OptDebug | planned | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
+| OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | planned | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | partial (reimplemented) | **no artifact** | — | — | — |
@@ -97,15 +97,52 @@ breakpoints**, **crash-culprit determination**, and **fine-grained latency alert
 The first two rest on the same task-level interception the forked executor backend
 provided; the third overlaps with PerfDebug.
 
-### FlowDebug and OptDebug — planned
+### FlowDebug — planned
 
-Both already follow the attach-as-a-library approach that BigAsterisk standardises on:
-they wrap `SparkContext` and `RDD` rather than patching Spark, so no fork is involved.
-They also share roughly 90% of their source — the `provenance`, `symbolicprimitives` and
-`sparkwrapper` packages are near-identical copies, with OptDebug adding operation-level
-taint (`optdebug/OptDebug.scala`, `OptSetProvenance`, `BitSetProvenance`). They will be
-migrated together onto one shared taint-provenance core rather than as two independent
-codebases. The work is a Scala 2.11 → 2.13 and Spark 2.x → 4.x update.
+FlowDebug already follows the attach-as-a-library approach BigAsterisk standardises on:
+it wraps `SparkContext` and `RDD` rather than patching Spark, so no fork is involved.
+The work is a Scala 2.11 → 2.13 and Spark 2.x → 4.x update, plus a decision about what
+"taint inside a UDF" means when the front end is SQL rather than an RDD chain.
+
+Note that FlowDebug and the upstream OptDebug share roughly 90% of their source — the
+`provenance`, `symbolicprimitives` and `sparkwrapper` packages are near-identical
+copies. Migrating FlowDebug should produce the shared taint-provenance core that a
+fuller OptDebug would also use.
+
+### OptDebug — partial, reimplemented for SQL
+
+The upstream artifact is an RDD-level tool: it wraps `SparkContext`, propagates
+operation taint through `symbolicprimitives`, and rewrites user code by source-to-source
+transformation (`refactor/ProvenanceInserter.scala`). None of that applies to a SQL
+front end, where there is no user Scala program to rewrite. The technique was therefore
+re-derived for Spark SQL.
+
+The paper rests on three insights. Where each stands:
+
+| Insight | Status |
+|---|---|
+| Use provenance to shrink the input to a small failing/passing set before debugging | **not implemented** — the failing population is every source record behind a rejected output |
+| Track operation provenance, so it is known which operations processed which records | **implemented for SQL**, at the granularity of plan operators and their conditional branches |
+| Rank operations by spectra — participation in failing versus passing outcomes | **implemented** (Tarantula and Ochiai) |
+
+Deliberate differences from the upstream implementation:
+
+- **Granularity.** The original propagates taint inside user-defined functions. The
+  finest granularity here is a conditional expression of the SQL plan — a `Filter`
+  condition, an arm of an `IF` or `CASE WHEN`. A fault inside a Scala or Python UDF is
+  localised to the operator that calls it, not to a line within it.
+- **How spectra are gathered.** No instrumentation and no taint-carrying values. Each
+  operation is executed as its own provenance-captured sub-query, and its spectrum is
+  the intersection of the records reaching it with the failing and passing populations.
+- **Tarantula is the default**, not Ochiai. Without the input minimisation above, the
+  failing population contains innocent records that merely share a group with the
+  culprit, and Ochiai's reward for raw failing coverage then ranks the query's
+  aggregation — which every record reaches — above the branch only the culprit took.
+  Tarantula scores such an operation a neutral 0.5.
+- **Witnesses are matched by content, not by lineage id.** Ids are positions assigned
+  per execution, so an id in one sub-query is unrelated to the same record's id in
+  another. Matching uses the source columns both sides expose, which means genuinely
+  duplicated source rows conflate.
 
 ### PerfDebug — planned
 

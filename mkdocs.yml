@@ -45,6 +45,7 @@ nav:
       - DeSQL (step-through SQL): desql.md
       - BigDebug (watchpoints): bigdebug.md
       - Vega (incremental re-execution): vega.md
+      - OptDebug (operation isolation): optdebug.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md
