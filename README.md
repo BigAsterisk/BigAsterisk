@@ -64,7 +64,7 @@ tool's page says which.
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
 | [BigDebug](docs/bigdebug.md) | On-demand watchpoints over distributed intermediate data | application | **partial** — watchpoints; breakpoints pending |
 | [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **partial** — influence; UDF taint pending |
-| [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — spectra over operators and branches |
+| [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |

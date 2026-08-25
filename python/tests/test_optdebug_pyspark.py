@@ -63,6 +63,29 @@ check("ochiai is selectable", ochiai.formula == "ochiai", ochiai.formula)
 check("operation repr is readable", "Aggregate" in repr(top), repr(top))
 check("result repr is readable", "OptDebugResult" in repr(result), repr(result))
 
+narrowed = o.localize(FAULTY, faulty_where="total < 0", base_table="orders")
+check("minimisation is reported", narrowed.minimised is True, repr(narrowed))
+check("the failing population is narrowed to the culprit",
+      narrowed.minimised_from == 4 and narrowed.failing_witnesses == 1,
+      "%s -> %s" % (narrowed.minimised_from, narrowed.failing_witnesses))
+check("the narrowed prime is the faulty branch",
+      narrowed.prime.is_branch and abs(narrowed.prime.score - 1.0) < 1e-9,
+      repr(narrowed.prime))
+
+# without narrowing Ochiai ranks the all-touching aggregation first; with it, the branch
+narrowed_ochiai = o.localize(FAULTY, faulty_where="total < 0",
+                             formula="ochiai", base_table="orders")
+check("minimisation makes ochiai viable", narrowed_ochiai.prime.is_branch is True,
+      repr(narrowed_ochiai.prime))
+
+check("the base table is restored", spark.table("orders").count() == 12)
+
+try:
+    o.localize(spark.sql(FAULTY), faulty_where="total < 0", base_table="orders")
+    check("base_table with a DataFrame is rejected", False, "no error raised")
+except ValueError as e:
+    check("base_table with a DataFrame is rejected", "query as text" in str(e), str(e)[:100])
+
 try:
     o.localize(FAULTY, faulty_where="total < 0", formula="nope")
     check("unknown formula is rejected", False, "no error raised")

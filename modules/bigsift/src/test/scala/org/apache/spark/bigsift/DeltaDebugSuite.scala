@@ -3,6 +3,7 @@
  */
 package org.apache.spark.bigsift
 
+import org.bigasterisk.api.DeltaDebug
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 

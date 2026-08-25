@@ -121,9 +121,21 @@ class OptDebugResult:
         """The scoring formula used."""
         return self._j.formula()
 
+    @property
+    def minimised(self):
+        """Whether the failing population was narrowed before scoring."""
+        return self._j.minimised()
+
+    @property
+    def minimised_from(self):
+        """How many failing witnesses there were before narrowing, or ``None``."""
+        opt = self._j.minimisedFrom()
+        return opt.get() if opt.isDefined() else None
+
     def __repr__(self):
-        return "OptDebugResult(%s, %d ranked, failing=%d, passing=%d)" % (
-            self.formula, len(self.ranked), self.failing_witnesses,
+        narrowing = "" if not self.minimised else " (minimised from %d)" % self.minimised_from
+        return "OptDebugResult(%s, %d ranked, failing=%d%s, passing=%d)" % (
+            self.formula, len(self.ranked), self.failing_witnesses, narrowing,
             self.passing_witnesses)
 
 
@@ -134,7 +146,7 @@ class OptDebug:
         self._spark = spark
         self._jvm = spark._jvm
 
-    def localize(self, df, faulty_where, formula="tarantula"):
+    def localize(self, df, faulty_where, formula="tarantula", base_table=None):
         """Rank the operations of ``df`` by how responsible each looks.
 
         ``df`` is a DataFrame or a query string. ``faulty_where`` is a SQL predicate
@@ -142,10 +154,26 @@ class OptDebug:
         rather than a callback, because it has to be evaluated inside the JVM.
 
         ``formula`` is ``"tarantula"`` (the default) or ``"ochiai"``.
+
+        Pass ``base_table`` to narrow the failing records to those that actually cause
+        the failure before scoring. That needs the query as text, so ``df`` must be a
+        query string when you use it. Narrowing costs a query re-execution per subset
+        tested and makes ``"ochiai"`` viable, which it is not without it.
         """
+        opt = self._jvm.org.bigasterisk.optdebug.OptDebug
+
+        if base_table is not None:
+            if not isinstance(df, str):
+                raise ValueError(
+                    "base_table needs the query as text: minimisation re-runs it with "
+                    "the table restricted, and a DataFrame's plan is already bound to "
+                    "the original relation")
+            return OptDebugResult(opt.localize(
+                self._spark._jsparkSession, base_table, df, faulty_where,
+                opt.formulaByName(formula)))
+
         if isinstance(df, str):
             df = self._spark.sql(df)
-        opt = self._jvm.org.bigasterisk.optdebug.OptDebug
         return OptDebugResult(opt.localize(
             self._spark._jsparkSession, df._jdf, faulty_where,
             opt.formulaByName(formula)))

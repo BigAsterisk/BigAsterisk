@@ -58,29 +58,58 @@ Source scans are not scored — every record reaches them, so they carry no sign
 join's condition is not offered as a branch, since which rows survive the join already
 says the same thing.
 
+## Narrowing the failing records first
+
+Provenance says which records reached the faulty output. It cannot say which ones
+*mattered*. For a grouped query that gap is large: every record of a faulty group is a
+witness, including innocent rows that merely shared a key with the culprit — so every
+operation the group flows through looks equally implicated.
+
+Pass a base table to narrow the failing population by delta debugging before scoring. A
+subset "still fails" if re-running the query with that table restricted to it still
+produces a row the oracle rejects.
+
+```scala
+OptDebug.localize(spark, "orders", query, oracle)     // minimising form
+```
+
+```python
+result = bigasterisk.optdebug(spark).localize(query, faulty_where="total < 0",
+                                              base_table="orders")
+result.minimised_from   # 4 — what provenance returned
+result.failing_witnesses  # 1 — what actually causes the failure
+```
+
+This needs the query as **text**, not a DataFrame: minimisation re-runs it with the
+table restricted, and a DataFrame's plan is already bound to the original relation. It
+costs one query re-execution per subset tested, which is why it is opt-in.
+
 ## Choosing a formula
 
 `Tarantula` is the default. It compares an operation's *rate* of failing coverage
 against its rate of passing coverage, so an operation touching every record scores a
 neutral 0.5 and one touching only failing records scores 1.0.
 
-That neutrality is the reason it is the default here. `Ochiai` rewards raw failing
-coverage, so a query's aggregation — which reaches every witness of a wrong result — out-ranks
-the branch only the culprit took. `Ochiai` is available and is the better choice once
-the failing population has been narrowed to the records actually responsible.
+That neutrality is why it is the default **without narrowing**. `Ochiai` rewards raw
+failing coverage, so an aggregation — which reaches every witness of a wrong result —
+out-ranks the branch only the culprit took.
+
+Narrowing changes that. With one failing witness instead of four, `Ochiai` gives the
+faulty branch 1.0 and the aggregation 0.33, and is the better choice:
 
 ```scala
-OptDebug.localize(spark, df, oracle, Suspiciousness.Ochiai)
+OptDebug.localize(spark, "orders", query, oracle, Suspiciousness.Ochiai)
 ```
+
+The suite asserts both halves of this: that `Ochiai` picks the wrong operation without
+narrowing, and the right one with it.
 
 ## Limitations
 
-- **Input minimisation is not implemented.** The paper's first insight is to shrink the
-  input with [BigSift](bigsift.md) before computing spectra, so the failing population
-  contains only records that actually cause the failure. Here the failing population is
-  every source record behind a rejected output, which for a grouped query includes
-  innocent members of the same group. This is why `Tarantula` is the default; wiring
-  BigSift in would sharpen the ranking and make `Ochiai` viable.
+- **Narrowing needs a single named base table.** A query joining several tables can only
+  be minimised over one of them at a time.
+- **Narrowing re-runs the query** once per subset delta debugging tests. Fine for
+  debugging, wrong for a hot path.
 - **UDF internals are opaque.** The paper propagates taint *inside* user-defined
   functions by source-to-source transformation. Here the finest granularity is a
   conditional expression in the SQL plan, so a fault inside a Scala or Python UDF is
@@ -95,6 +124,7 @@ OptDebug.localize(spark, df, oracle, Suspiciousness.Ochiai)
 ## Where it lives
 
 `modules/optdebug` reaches Spark only through `bigasterisk-api`. The scoring is
-arithmetic and the provenance arrives through the binding, so the module carries no
-dependency on a Spark version — the same shape any version-independent tool in this
-repository should take.
+arithmetic, the provenance arrives through the binding, and delta debugging is a pure
+algorithm shared with [BigSift](bigsift.md) (`org.bigasterisk.api.DeltaDebug`) — so the
+module carries no dependency on a Spark version. That is the shape any
+version-independent tool in this repository should take.

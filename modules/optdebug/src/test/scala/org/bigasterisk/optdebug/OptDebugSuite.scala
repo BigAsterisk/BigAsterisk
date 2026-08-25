@@ -148,6 +148,64 @@ class OptDebugSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     result.ranked.find(!_.isBranch).get.branchOrNull shouldBe null
   }
 
+  test("minimisation narrows the failing population to the culprit") {
+    val result = OptDebug.localize(spark, "orders", faultyQuery, negativeTotal)
+
+    result.minimised shouldBe true
+    // provenance returns all four c2 orders; only the outlier actually causes the fault
+    result.minimisedFrom shouldBe Some(4L)
+    result.failingWitnesses shouldBe 1L
+  }
+
+  test("minimisation makes the faulty branch unambiguous") {
+    val plain = OptDebug.localize(spark, spark.sql(faultyQuery), negativeTotal)
+    val narrowed = OptDebug.localize(spark, "orders", faultyQuery, negativeTotal)
+
+    // both rank the branch first, but narrowing removes the innocent group members that
+    // made the aggregation look half-implicated
+    narrowed.prime.get.isBranch shouldBe true
+    narrowed.prime.get.score shouldBe 1.0 +- 1e-9
+    narrowed.prime.get.failingWitnesses shouldBe 1L
+    narrowed.prime.get.passingWitnesses shouldBe 0L
+
+    val plainAggregate = plain.ranked.find(op => op.operator == "Aggregate" && !op.isBranch).get
+    val narrowedAggregate =
+      narrowed.ranked.find(op => op.operator == "Aggregate" && !op.isBranch).get
+    narrowedAggregate.failingWitnesses should be < plainAggregate.failingWitnesses
+  }
+
+  test("minimisation makes Ochiai viable, which it is not without it") {
+    // without narrowing, Ochiai rewards raw failing coverage and the all-touching
+    // aggregation out-ranks the branch only the culprit took
+    val without = OptDebug.localize(
+      spark, spark.sql(faultyQuery), negativeTotal, Suspiciousness.Ochiai)
+    without.prime.get.isBranch shouldBe false
+
+    // with narrowing there is one failing witness, and the branch it took wins outright
+    val with_ = OptDebug.localize(
+      spark, "orders", faultyQuery, negativeTotal, Suspiciousness.Ochiai)
+    with_.prime.get.isBranch shouldBe true
+    with_.prime.get.score shouldBe 1.0 +- 1e-9
+  }
+
+  test("the base table is restored after minimisation") {
+    val before = spark.table("orders").collect().map(_.getString(0)).toSet
+    OptDebug.localize(spark, "orders", faultyQuery, negativeTotal)
+    spark.table("orders").collect().map(_.getString(0)).toSet shouldBe before
+  }
+
+  test("the DataFrame form does not minimise") {
+    val result = OptDebug.localize(spark, spark.sql(faultyQuery), negativeTotal)
+    result.minimised shouldBe false
+    result.minimisedFrom shouldBe None
+    result.failingWitnesses shouldBe 4L
+  }
+
+  test("minimisation reports the narrowing in its summary") {
+    val result = OptDebug.localize(spark, "orders", faultyQuery, negativeTotal)
+    result.toString should include("minimised from 4")
+  }
+
   test("scoring formulas behave at the boundaries") {
     // an operation covering only failing records
     Suspiciousness.Tarantula.score(3, 0, 3, 10) shouldBe 1.0 +- 1e-9

@@ -17,6 +17,7 @@
 
 package org.apache.spark.bigsift
 
+import org.bigasterisk.api.DeltaDebug
 import scala.reflect.ClassTag
 
 import org.apache.spark.lineage.LineageContext

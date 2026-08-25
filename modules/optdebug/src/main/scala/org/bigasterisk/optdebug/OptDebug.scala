@@ -3,31 +3,44 @@ package org.bigasterisk.optdebug
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions.expr
 
-import org.bigasterisk.api.{BigAsterisk, SuspiciousOperation, Suspiciousness}
+import scala.jdk.CollectionConverters._
+
+import org.bigasterisk.api.{BigAsterisk, DeltaDebug, SuspiciousOperation, Suspiciousness}
 
 /**
  * The result of localising a fault to the operations of a query.
  *
  * @param ranked          operations, most suspicious first
  * @param failingOutputs  output rows the oracle rejected
- * @param failingWitnesses source records behind the failing outputs
+ * @param failingWitnesses source records behind the failing outputs, after minimisation
  * @param passingWitnesses source records behind the accepted outputs
  * @param formula         the scoring formula used
+ * @param minimisedFrom   how many failing witnesses there were before minimisation, when
+ *                        it ran. The gap between this and `failingWitnesses` is what
+ *                        sharpens the ranking: provenance returns every record of the
+ *                        group, minimisation keeps only those that actually cause the
+ *                        failure.
  */
 case class OptDebugResult(
     ranked: Seq[SuspiciousOperation],
     failingOutputs: Array[Row],
     failingWitnesses: Long,
     passingWitnesses: Long,
-    formula: String) {
+    formula: String,
+    minimisedFrom: Option[Long] = None) {
+
+  /** True when the failing population was narrowed before scoring. */
+  def minimised: Boolean = minimisedFrom.isDefined
 
   /** The most suspicious operation, if the query had any to score. */
   def prime: Option[SuspiciousOperation] = ranked.headOption
 
-  override def toString: String =
+  override def toString: String = {
+    val narrowing = minimisedFrom.map(before => s" (minimised from $before)").getOrElse("")
     s"OptDebugResult($formula, ${failingOutputs.length} failing outputs, " +
-      s"$failingWitnesses failing / $passingWitnesses passing witnesses)\n" +
+      s"$failingWitnesses failing$narrowing / $passingWitnesses passing witnesses)\n" +
       ranked.map("  " + _).mkString("\n")
+  }
 }
 
 /**
@@ -77,7 +90,55 @@ object OptDebug {
       spark: SparkSession,
       df: DataFrame,
       oracle: Row => Boolean,
-      formula: Suspiciousness = Suspiciousness.Tarantula): OptDebugResult = {
+      formula: Suspiciousness = Suspiciousness.Tarantula): OptDebugResult =
+    localizeCore(spark, df, oracle, formula, minimiser = None)
+
+  /**
+   * Ranks the operations of `query`, narrowing the failing population first.
+   *
+   * The paper's first insight is that debugging is easier on a small input: before
+   * scoring operations, shrink the failing records to those that actually cause the
+   * failure. Without it the failing population contains every record of a faulty
+   * group — innocent rows that merely shared a key with the culprit — and every
+   * operation the group flows through looks equally implicated.
+   *
+   * Narrowing uses delta debugging over the base table: a subset "still fails" if
+   * re-running `query` with `baseTable` restricted to it still produces a row the
+   * oracle rejects. That costs one query re-execution per subset tested, which is why
+   * it is opt-in and needs the query text rather than a DataFrame — a DataFrame's plan
+   * is already bound to the original relation and would not see the restriction.
+   *
+   * With the failing population narrowed, [[Suspiciousness.Ochiai]] becomes viable and
+   * often preferable; see `docs/optdebug.md`.
+   *
+   * @param baseTable the table to minimise over, by the name `query` reads it under
+   */
+  def localize(
+      spark: SparkSession,
+      baseTable: String,
+      query: String,
+      oracle: Row => Boolean,
+      formula: Suspiciousness): OptDebugResult =
+    localizeCore(spark, spark.sql(query), oracle, formula,
+      minimiser = Some(Minimiser(baseTable, query)))
+
+  /** As above, with the default formula. */
+  def localize(
+      spark: SparkSession,
+      baseTable: String,
+      query: String,
+      oracle: Row => Boolean): OptDebugResult =
+    localize(spark, baseTable, query, oracle, Suspiciousness.Tarantula)
+
+  /** What is needed to re-run a query with its input restricted. */
+  private case class Minimiser(baseTable: String, query: String)
+
+  private def localizeCore(
+      spark: SparkSession,
+      df: DataFrame,
+      oracle: Row => Boolean,
+      formula: Suspiciousness,
+      minimiser: Option[Minimiser]): OptDebugResult = {
 
     val lineage = BigAsterisk.lineage(spark)
     val desql = BigAsterisk.desql(spark)
@@ -91,9 +152,20 @@ object OptDebug {
       require(failing.nonEmpty,
         "the oracle accepted every output row, so there is no fault to localise")
 
-      val failingWitnesses = witnessesOf(lineage, df, failing.map(_._2))
+      val tracedFailing = witnessesOf(lineage, df, failing.map(_._2))
       val passingWitnesses = witnessesOf(lineage, df, passing.map(_._2))
       lineage.releaseLineage(df)
+      lineage.disableCapture(spark)
+
+      // Narrow the failing population before scoring, when asked. Capture is off for
+      // this: minimisation re-runs the query many times and needs no provenance.
+      val (failingWitnesses, minimisedFrom) = minimiser match {
+        case None => (tracedFailing, None)
+        case Some(m) =>
+          val narrowed = minimise(spark, m, oracle, tracedFailing)
+          (narrowed, Some(tracedFailing.rows.size.toLong))
+      }
+      lineage.enableCapture(spark)
 
       // 2. Score each operation by the source records that reach it. Source scans are
       //    skipped: every record reaches them, so they carry no signal.
@@ -152,7 +224,8 @@ object OptDebug {
         failingOutputs = failing.map(_._1),
         failingWitnesses = totalFailing,
         passingWitnesses = totalPassing,
-        formula = formula.name)
+        formula = formula.name,
+        minimisedFrom = minimisedFrom)
     } finally {
       lineage.disableCapture(spark)
     }
@@ -195,6 +268,32 @@ object OptDebug {
   def localize(spark: SparkSession, df: DataFrame, faultyWhere: String): OptDebugResult =
     localize(spark, df, faultyWhere, Suspiciousness.Tarantula)
 
+  /**
+   * The minimising form with a SQL predicate for the oracle — the one to use from a
+   * language binding, since a predicate crosses a process boundary and a closure does
+   * not.
+   *
+   * The verdict is computed by wrapping the query rather than the DataFrame, so
+   * minimisation can re-run it with the base table restricted.
+   */
+  def localize(
+      spark: SparkSession,
+      baseTable: String,
+      query: String,
+      faultyWhere: String,
+      formula: Suspiciousness): OptDebugResult = {
+    val augmented = s"SELECT *, ($faultyWhere) AS $VerdictColumn FROM ($query)"
+    val df = spark.sql(augmented)
+    val verdictIndex = df.schema.fieldIndex(VerdictColumn)
+    val result = localizeCore(
+      spark,
+      df,
+      row => !row.isNullAt(verdictIndex) && row.getBoolean(verdictIndex),
+      formula,
+      minimiser = Some(Minimiser(baseTable, augmented)))
+    result.copy(failingOutputs = result.failingOutputs.map(dropVerdict))
+  }
+
   /** Named formulas, for callers that cannot name a Scala object. */
   def formulaByName(name: String): Suspiciousness =
     Suspiciousness.all.find(_.name.equalsIgnoreCase(name)).getOrElse {
@@ -209,6 +308,65 @@ object OptDebug {
     val schema = org.apache.spark.sql.types.StructType(
       row.schema.fields.filter(_.name != VerdictColumn))
     new org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema(values, schema)
+  }
+
+  /**
+   * Narrows the failing witnesses to those that actually cause the failure.
+   *
+   * Provenance says which records reached the faulty output; it cannot say which ones
+   * mattered. Delta debugging answers that by re-running the query with the input
+   * restricted and seeing whether the failure survives.
+   *
+   * The traced witnesses may carry a pruned schema — the scan only produced the columns
+   * the query needed — so they are first joined back against the base table to recover
+   * whole rows, which is what re-running requires.
+   */
+  private def minimise(
+      spark: SparkSession,
+      m: Minimiser,
+      oracle: Row => Boolean,
+      traced: Witnesses): Witnesses = {
+
+    if (traced.rows.isEmpty) return traced
+
+    val base = spark.table(m.baseTable)
+    val candidates = fullRowsFor(spark, base, traced)
+    if (candidates.isEmpty) return traced
+
+    def restore(): Unit = base.createOrReplaceTempView(m.baseTable)
+
+    def reproduces(subset: Seq[Row]): Boolean = subset.nonEmpty && {
+      spark.createDataFrame(subset.asJava, base.schema)
+        .createOrReplaceTempView(m.baseTable)
+      try spark.sql(m.query).collect().exists(oracle)
+      finally restore()
+    }
+
+    try {
+      // If the candidate set does not reproduce the failure on its own, minimising it
+      // would be meaningless — keep what provenance gave us rather than inventing a
+      // smaller answer.
+      if (!reproduces(candidates)) traced
+      else Witnesses.of(DeltaDebug.ddmin(candidates)(reproduces).toArray)
+    } finally restore()
+  }
+
+  /**
+   * Whole base-table rows matching a set of possibly column-pruned witnesses.
+   *
+   * A null-safe semi-join on the columns both sides expose: the witness columns are
+   * renamed first, since the base table has the same names.
+   */
+  private def fullRowsFor(spark: SparkSession, base: DataFrame, traced: Witnesses): Seq[Row] = {
+    val common = traced.columns.intersect(base.schema.fieldNames.toSeq)
+    if (common.isEmpty || traced.rows.isEmpty) return Seq.empty
+
+    val witnessSchema = traced.rows.head.schema
+    val witnesses = spark
+      .createDataFrame(traced.rows.asJava, witnessSchema)
+      .toDF(witnessSchema.fieldNames.map("__w_" + _).toIndexedSeq: _*)
+    val condition = common.map(c => base(c) <=> witnesses("__w_" + c)).reduce(_ && _)
+    base.join(witnesses, condition, "left_semi").collect().toSeq
   }
 
   /**

@@ -21,7 +21,7 @@ import java.io.File
 
 import scala.jdk.CollectionConverters._
 
-import org.apache.spark.bigsift.DeltaDebug
+import org.bigasterisk.api.DeltaDebug
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions.{col, monotonically_increasing_id}
 import org.apache.spark.sql.lineage.TitianSQL

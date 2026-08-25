@@ -15,14 +15,19 @@
  * limitations under the License.
  */
 
-package org.apache.spark.bigsift
+package org.bigasterisk.api
 
 import scala.collection.immutable.BitSet
 import scala.collection.mutable
 
 /**
  * Delta Debugging (Zeller & Hildebrandt, *Simplifying and Isolating Failure-Inducing
- * Input*, TSE 2002) — the minimization core of BigSift.
+ * Input*, TSE 2002).
+ *
+ * Shared by every tool in the platform that narrows a failure to its cause: BigSift
+ * minimises input records, and OptDebug minimises the failing population before scoring
+ * operations. One implementation rather than one per tool — it is pure Scala with no
+ * Spark in it, so it lives with the version-independent API.
  *
  * `ddmin` finds a 1-minimal subset of `items` that still reproduces a failure: a subset
  * for which `failing` returns true, but from which removing any single element makes it

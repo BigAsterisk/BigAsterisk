@@ -145,7 +145,7 @@ The paper rests on three insights. Where each stands:
 
 | Insight | Status |
 |---|---|
-| Use provenance to shrink the input to a small failing/passing set before debugging | **not implemented** — the failing population is every source record behind a rejected output |
+| Use provenance to shrink the input to a small failing/passing set before debugging | **implemented** — opt-in, by delta debugging over a named base table |
 | Track operation provenance, so it is known which operations processed which records | **implemented for SQL**, at the granularity of plan operators and their conditional branches |
 | Rank operations by spectra — participation in failing versus passing outcomes | **implemented** (Tarantula and Ochiai) |
 
@@ -158,11 +158,14 @@ Deliberate differences from the upstream implementation:
 - **How spectra are gathered.** No instrumentation and no taint-carrying values. Each
   operation is executed as its own provenance-captured sub-query, and its spectrum is
   the intersection of the records reaching it with the failing and passing populations.
-- **Tarantula is the default**, not Ochiai. Without the input minimisation above, the
+- **Tarantula is the default**, not Ochiai, because narrowing is opt-in. Without it the
   failing population contains innocent records that merely share a group with the
   culprit, and Ochiai's reward for raw failing coverage then ranks the query's
   aggregation — which every record reaches — above the branch only the culprit took.
-  Tarantula scores such an operation a neutral 0.5.
+  Tarantula scores such an operation a neutral 0.5. With narrowing on, Ochiai becomes
+  the better choice, and the suite asserts the reversal in both directions.
+- **Narrowing is over one named base table**, and needs the query as text rather than a
+  DataFrame, since it re-runs the query with that table restricted.
 - **Witnesses are matched by content, not by lineage id.** Ids are positions assigned
   per execution, so an id in one sub-query is unrelated to the same record's id in
   another. Matching uses the source columns both sides expose, which means genuinely
