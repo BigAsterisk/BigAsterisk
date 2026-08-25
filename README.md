@@ -68,14 +68,17 @@ tool's page says which.
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |
-| BigTest | Symbolic execution over dataflow operators and UDFs | application | planned |
+| [BigTest](docs/testgen.md) | Symbolic execution over dataflow operators and UDFs | application | **partial** — SQL predicates; UDF bytecode pending |
 | [BigFuzz](docs/fuzzing.md) | Fuzzing via framework abstraction | application | **partial** — mutation and guidance; abstraction pending |
 | [DepFuzz](docs/fuzzing.md) | Co-dependence-aware mutation, so inputs survive joins across tables | input data | **integrated** |
 | [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
-| NaturalSym | Symbolic execution that generates natural, distribution-aware inputs | application | planned |
+| [NaturalSym](docs/testgen.md) | Symbolic execution that generates natural, distribution-aware inputs | application | **partial** — natural witnesses; distributions pending |
 
-Debugging tools are being migrated first, then the testing tools. Every migrated tool
-records the upstream repository and commit it derives from in
+All thirteen now run: five are complete, eight reproduce part of their paper. Each
+partial tool's page states plainly which part, and why the rest is outstanding — in
+several cases the missing piece is what required a forked Spark, a JDK 8 symbolic
+execution engine, or a benchmark suite that no longer exists. Every tool records the
+upstream repository and commit it derives from in
 [PROVENANCE.md](PROVENANCE.md), and documents any deviation from the published
 technique.
 

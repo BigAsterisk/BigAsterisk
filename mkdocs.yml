@@ -49,6 +49,7 @@ nav:
       - PerfDebug (computation skew): perfdebug.md
       - FlowDebug (influence-based provenance): flowdebug.md
       - Fuzzing (BigFuzz, NaturalFuzz, DepFuzz): fuzzing.md
+      - Test generation (BigTest, NaturalSym): testgen.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md

@@ -44,6 +44,7 @@ from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
 from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
 from bigasterisk.influence import Influence, InfluenceProvenance
 from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
+from bigasterisk.testgen import TestGen, TestSuite, TestCase
 
 __all__ = [
     "configure",
@@ -78,6 +79,10 @@ __all__ = [
     "Fuzz",
     "FuzzResult",
     "FuzzFailure",
+    "testgen",
+    "TestGen",
+    "TestSuite",
+    "TestCase",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -216,3 +221,14 @@ def fuzz(spark):
         print(result.coverage, result.failures)
     """
     return Fuzz(spark)
+
+
+def testgen(spark):
+    """Systematic test-input generation for ``spark``.
+
+    Solve the query's own conditions and construct an input per path through them::
+
+        suite = bigasterisk.testgen(spark).generate(query, {"orders": orders})
+        print(suite.coverage)
+    """
+    return TestGen(spark)

@@ -36,6 +36,8 @@ written for.
   result, which ones actually mattered.
 - :material-bug-outline: **[Fuzzing](fuzzing.md)** — BigFuzz, NaturalFuzz and DepFuzz
   as one fuzzer with three mutation strategies.
+- :material-function-variant: **[Test generation](testgen.md)** — BigTest and
+  NaturalSym: solve the query's conditions and build an input per path.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -82,12 +84,13 @@ is wrong.
 | [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | [Vega](vega.md) | Incremental re-execution across query revisions | **partial** |
-| BigTest | Symbolic execution over dataflow operators and UDFs | planned |
+| [BigTest](testgen.md) | Symbolic execution over dataflow operators and UDFs | **partial** |
 | [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **partial** |
 | [DepFuzz](fuzzing.md) | Co-dependence-aware mutation across joined tables | **integrated** |
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
-| NaturalSym | Distribution-aware symbolic test generation | planned |
+| [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **partial** |
 
-Debugging tools are being migrated first, then the testing tools. The upstream
-repository and commit each migrated tool derives from is recorded in
+All thirteen now run: five are complete, eight reproduce part of their paper. Each
+partial tool's page states plainly which part, and why the rest is outstanding. The
+upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

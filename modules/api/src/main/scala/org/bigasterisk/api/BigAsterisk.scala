@@ -36,6 +36,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname perfdebug Performance debugging
  * @groupname influence Influence-based provenance
  * @groupname fuzz Fuzz testing
+ * @groupname testgen Symbolic test generation
  */
 object BigAsterisk {
 
@@ -197,4 +198,12 @@ object BigAsterisk {
    * @group fuzz
    */
   def fuzz(spark: SparkSession): FuzzSupport = binding(spark).fuzz
+
+  /**
+   * Systematic test-input generation for `spark`: solve the query's own conditions and
+   * construct an input per path through them.
+   *
+   * @group testgen
+   */
+  def testgen(spark: SparkSession): TestGenSupport = binding(spark).testgen
 }

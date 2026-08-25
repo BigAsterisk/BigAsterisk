@@ -64,6 +64,9 @@ trait SparkBinding {
   /** Fuzz testing for this Spark version. */
   def fuzz: FuzzSupport
 
+  /** Systematic test-input generation for this Spark version. */
+  def testgen: TestGenSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without
