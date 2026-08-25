@@ -56,6 +56,18 @@ object PlatformTour {
       .getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
+    // Fail with a sentence rather than a Spark stack trace if the fixtures are absent.
+    // They are committed, so absence means the tour is running from the wrong directory.
+    Seq("examples/data/orders.txt", "examples/data/customers.txt").foreach { path =>
+      if (!new java.io.File(path).isFile) {
+        System.err.println(
+          s"Cannot find $path. The tour reads committed fixtures relative to the " +
+          s"repository root; run it as `bin/bigasterisk tour` from there. " +
+          s"(working directory: ${new java.io.File(".").getCanonicalPath})")
+        System.exit(1)
+      }
+    }
+
     val orders = spark.read.schema("oid STRING, cid STRING, amount INT")
       .csv("examples/data/orders.txt")
     // Coalescing puts a CoalesceExec in the plan, which is outside the capture engine's

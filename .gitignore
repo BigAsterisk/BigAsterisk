@@ -7,9 +7,11 @@ project/project/
 # Project-local toolchain, fetched by bin/bootstrap
 tools/
 
-# Generated example data and harness output
-examples/data/*.csv
-examples/data/*.txt
+# Generated example data and harness output. Only the files generate.py writes: the
+# small fixtures beside it are committed, because the platform tour reads them.
+examples/data/airport.csv
+examples/data/weather.csv
+examples/data/student.txt
 tpcds/data/
 *.classpath
 
