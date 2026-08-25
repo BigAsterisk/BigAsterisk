@@ -1,0 +1,79 @@
+name: Release
+
+# Cuts a release from a tag. The jars are what people consume — Spark itself is a
+# `provided` dependency, so these are small and attach directly to the release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build (must already exist)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - name: Cache Spark distribution
+        id: spark-cache
+        uses: actions/cache@v4
+        with:
+          path: tools/spark-4.1.2-bin-hadoop3
+          key: ${{ runner.os }}-spark-4.1.2-bin-hadoop3
+
+      - name: Download Spark distribution
+        if: steps.spark-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tools
+          curl -fsSL "https://archive.apache.org/dist/spark/spark-4.1.2/spark-4.1.2-bin-hadoop3.tgz" \
+            | tar xz -C tools
+
+      # Never publish something that does not pass its own tests.
+      - name: Test
+        run: sbt -batch test
+
+      - name: Package
+        run: |
+          sbt -batch package unidoc
+          mkdir -p release
+          find modules -name 'bigasterisk-*.jar' -exec cp {} release/ \;
+          (cd target/scala-2.13 && zip -qr - unidoc) > release/bigasterisk-scaladoc.zip
+          (cd python && zip -qr - bigasterisk -x '*__pycache__*') > release/bigasterisk-python.zip
+          ls -la release
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            Attach these to a Spark 4.1.x job:
+
+            ```bash
+            spark-submit \
+              --jars bigasterisk-api_2.13-*.jar,bigasterisk-spark4_2.13-*.jar,bigasterisk-bigsift_2.13-*.jar,bigasterisk-optdebug_2.13-*.jar \
+              --py-files bigasterisk-python.zip \
+              your-app.jar
+            ```
+
+            Spark is a `provided` dependency — these jars attach to the Spark you already
+            run. See the [documentation](https://bigasterisk.github.io/BigAsterisk/).

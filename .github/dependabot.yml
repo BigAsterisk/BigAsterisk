@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }
+    commit-message: { prefix: "ci" }
+
+  # sbt is not natively supported; this keeps the plugin and library versions in
+  # project/ visible to Dependabot's ecosystem-agnostic scanning where it applies.
+  - package-ecosystem: pip
+    directory: /
+    schedule: { interval: monthly }
+    commit-message: { prefix: "deps" }
+    open-pull-requests-limit: 5

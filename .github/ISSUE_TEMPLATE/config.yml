@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Which tool answers my question?
+    url: https://github.com/BigAsterisk/BigAsterisk/blob/main/README.md#tools
+    about: Each tool answers a different question about a failure; the table says which.
+  - name: What was and was not reproduced from each paper
+    url: https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md
+    about: Read this before reporting a tool as incomplete — it may be a stated boundary.

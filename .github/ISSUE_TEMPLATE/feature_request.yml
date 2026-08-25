@@ -1,0 +1,26 @@
+name: Feature request
+description: Something a tool should do and does not
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Each tool corresponds to a published paper, and `PROVENANCE.md` records what was
+        and was not reproduced from each. If you are asking for something the paper
+        describes, saying so helps a lot.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The debugging or testing problem, before any proposed solution.
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like it to do
+    validations: { required: true }
+  - type: input
+    id: paper
+    attributes:
+      label: Is this in one of the papers?
+      placeholder: "e.g. OptDebug SoCC 2021, section 4.2 — or 'no, this is new'"

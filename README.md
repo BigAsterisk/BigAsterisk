@@ -1,5 +1,11 @@
 # BigAsterisk
 
+[![CI](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/ci.yml/badge.svg)](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/ci.yml)
+[![Documentation](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/docs.yml/badge.svg)](https://bigasterisk.github.io/BigAsterisk/)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Spark](https://img.shields.io/badge/Apache%20Spark-4.1.x-e25a1c.svg)](https://spark.apache.org/)
+[![Scala](https://img.shields.io/badge/Scala-2.13-red.svg)](https://www.scala-lang.org/)
+
 **A unified debugging and testing platform for Apache Spark.**
 
 BigAsterisk brings thirteen research systems for debugging and testing data-intensive
@@ -178,6 +184,15 @@ PySpark users ship `python/bigasterisk` with `--py-files` and use
 
 If you use BigAsterisk in academic work, please cite the paper for the specific
 technique you used. Per-tool BibTeX entries are in [docs/citations.md](docs/citations.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Two rules shape most of what a good change looks
+like here: nothing that knows about a specific Spark version may live in a tool, and a
+tool that cannot answer must say so rather than approximate.
+
+Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md). To report a
+vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## License
 

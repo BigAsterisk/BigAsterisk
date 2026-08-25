@@ -1,0 +1,62 @@
+name: Bug report
+description: Something a tool does that it should not
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: a tool refusing to do something is often deliberate. Each tool's
+        page in `docs/` lists what it does not support, and an operator outside a
+        verified set is reported rather than approximated on purpose.
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Which tool
+      options:
+        - Titian
+        - BigSift
+        - BigDebug
+        - FlowDebug
+        - OptDebug
+        - PerfDebug
+        - DeSQL
+        - Vega
+        - BigTest
+        - BigFuzz
+        - DepFuzz
+        - NaturalFuzz
+        - NaturalSym
+        - The platform itself (binding, build, docs)
+    validations: { required: true }
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Include the exact error or the wrong output, not a paraphrase.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations: { required: true }
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: >
+        Smallest query and input that shows it. The fixtures in `examples/data` are a
+        good basis, and a failing test is better than prose.
+      render: scala
+    validations: { required: true }
+  - type: input
+    id: spark
+    attributes:
+      label: Spark version
+      placeholder: "4.1.2"
+    validations: { required: true }
+  - type: input
+    id: commit
+    attributes:
+      label: BigAsterisk commit
+      placeholder: "output of `git rev-parse --short HEAD`"
+    validations: { required: true }

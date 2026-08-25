@@ -1,0 +1,64 @@
+name: Documentation
+
+# Publishes the manual and the API reference to GitHub Pages. The site is built in CI on
+# every pull request too (see ci.yml), so a broken link fails review rather than
+# publication.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never publish two builds at once, and let a newer commit supersede an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+
+      # The manual links to api/index.html, so the Scaladoc has to exist before the
+      # strict build can resolve it.
+      - name: Build the API reference
+        run: |
+          sbt -batch unidoc
+          rm -rf docs/api
+          cp -r target/scala-2.13/unidoc docs/api
+
+      - name: Build the site
+        run: mkdocs build --strict
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
