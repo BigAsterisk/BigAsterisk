@@ -75,6 +75,47 @@ one, `Int.MaxValue`, the empty string, `NaN`, a 256-character string. Plausible-
 data alone will not find the crash on an empty string or an overflowing sum. With ANSI
 mode on, this is what finds an integer overflow in `amount + amount`.
 
+## Running without Spark
+
+A campaign runs the same small query thousands of times. Run through Spark, almost all
+of that is framework — planning, scheduling, task serialization, shuffle setup — work
+that dwarfs the query itself when the input is twenty rows.
+
+By default each iteration is evaluated by **interpreting the query's analyzed plan over
+in-memory rows** instead. The operator semantics are Spark's: expressions are evaluated
+with Catalyst's own interpreted evaluation, and aggregates run Spark's own declarative
+definitions. What is gone is the framework around them, and the re-planning per
+iteration — the plan is analyzed once and the generated rows are substituted at its
+leaves.
+
+On a joined, filtered, grouped query over twenty rows:
+
+```
+50 iterations of the same campaign:
+  through Spark     3421 ms   (  68.4 ms per iteration)
+  abstracted          49 ms   (   1.0 ms per iteration)
+  speedup             69.8x
+```
+
+Reproduce it with
+`bin/sbt 'examples/runMain org.bigasterisk.examples.FuzzAbstractionBenchmark'`. The ratio
+depends on the machine, which is why it is a benchmark rather than a test — what the
+suite pins is that **both paths produce the same answer**, for the same seed.
+
+### What it supports, and what it refuses
+
+Scans, projections, filters, inner joins, `UNION ALL`, `LIMIT`, `DISTINCT`, and grouped
+or global aggregation with `SUM`, `COUNT`, `MAX`, `MIN` and `AVG`.
+
+Anything else — an outer join, `ORDER BY`, a `DISTINCT` aggregate — is **refused**, and
+that iteration runs on Spark instead. A faster oracle that quietly disagrees with the
+real one is worse than no oracle, so the interpreter never approximates: every supported
+shape is checked differentially against Spark, and every unsupported one is checked to
+say so rather than guess.
+
+Set `abstractFramework = false` (`abstract_framework=False` in Python) to run everything
+through Spark. `FuzzResult.abstracted` reports how many iterations avoided it.
+
 ## Coverage and guidance
 
 The coverage targets are the query's **branches**: a `Filter` condition and its
@@ -92,11 +133,8 @@ A campaign is reproducible: same `seed`, same result.
 
 ## Limitations
 
-- **Framework abstraction is not implemented.** BigFuzz's headline result — removing
-  98% of the setup overhead by running the dataflow's semantics without Spark — is not
-  reproduced. Every iteration here runs a real Spark job, so a campaign is orders of
-  magnitude slower per iteration than the paper's. What is reproduced is the mutation
-  and guidance, not the framework abstraction.
+- **The interpreter covers a subset.** Queries outside it fall back to Spark, which is
+  correct but slow. Widening the subset widens the speedup.
 - **Failures are exceptions, not oracles.** A campaign finds inputs that make the query
   *throw*. It does not check that a query returns the right answer.
 - **Co-dependence is matched by column name.** A join between `orders.cid` and

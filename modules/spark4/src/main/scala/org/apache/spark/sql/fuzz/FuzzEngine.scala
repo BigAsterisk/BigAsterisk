@@ -61,6 +61,17 @@ class FuzzEngine extends FuzzSupport {
     val failures = mutable.ArrayBuffer.empty[FuzzFailure]
     var empties = 0
     var iterationsRun = 0
+    var abstracted = 0
+
+    // Framework abstraction: analyse the query once against the seed views, then
+    // interpret that plan with generated rows substituted at the leaves. No planning,
+    // no scheduling and no task setup per iteration — and no re-analysis either.
+    val abstraction: Option[(LogicalPlan, Map[String, String])] =
+      if (!config.abstractFramework) None
+      else {
+        val analyzed = spark.sql(query).queryExecution.analyzed
+        LocalDataflow.leafTables(analyzed, schemas).map(analyzed -> _)
+      }
 
     // The corpus starts from the seed rows and grows with inputs that found new ground.
     val corpus = mutable.ArrayBuffer(seeds.map { case (n, df) => n -> df.collect().toSeq }.toMap)
@@ -69,30 +80,79 @@ class FuzzEngine extends FuzzSupport {
       var i = 0
       while (i < config.iterations) {
         val candidate = generate(schemas, pools, corpus, config, random)
-        registerViews(spark, candidate, schemas)
         iterationsRun += 1
 
-        try {
-          val df = spark.sql(query)
-          val rows = df.collect()
-          if (rows.isEmpty) empties += 1
-
-          val reached = coverageOf(spark, query, targets)
-          val fresh = reached -- covered
-          covered ++= reached
-          if (config.guided && fresh.nonEmpty) corpus += candidate
-        } catch {
-          case NonFatal(e) =>
-            failures += FuzzFailure(i, s"${e.getClass.getSimpleName}: ${e.getMessage}", candidate)
-            // an input that breaks the query is worth mutating further
-            if (config.guided) corpus += candidate
+        val outcome = abstraction.flatMap { case (plan, leafToTable) =>
+          runAbstracted(plan, leafToTable, candidate, targets)
         }
+
+        val (failed, empty, reached) = outcome match {
+          case Some(result) => abstracted += 1; result
+          case None =>
+            registerViews(spark, candidate, schemas)
+            runOnSpark(spark, query, targets)
+        }
+
+        failed.foreach { message =>
+          failures += FuzzFailure(i, message, candidate)
+          // an input that breaks the query is worth mutating further
+          if (config.guided) corpus += candidate
+        }
+        if (empty) empties += 1
+        val fresh = reached -- covered
+        covered ++= reached
+        if (config.guided && fresh.nonEmpty) corpus += candidate
         i += 1
       }
     }
 
-    FuzzResult(iterationsRun, failures.toSeq, covered.toSet, targets.map(_._2.size).sum, empties)
+    FuzzResult(
+      iterationsRun, failures.toSeq, covered.toSet, targets.map(_._2.size).sum, empties,
+      abstracted)
   }
+
+  /** What one iteration produced: a failure message, whether it was empty, and coverage. */
+  private type Iteration = (Option[String], Boolean, Set[String])
+
+  /**
+   * One iteration without Spark, or `None` if the interpreter cannot take it — in which
+   * case the caller runs it on Spark rather than reporting a result it did not compute.
+   */
+  private def runAbstracted(
+      plan: LogicalPlan,
+      leafToTable: Map[String, String],
+      candidate: Map[String, Seq[Row]],
+      targets: Seq[(LogicalPlan, Seq[Expression])]): Option[Iteration] = {
+    val byLeaf = leafToTable.map { case (leafKey, table) => leafKey -> candidate(table) }
+
+    LocalDataflow.evaluate(plan, byLeaf) match {
+      case LocalDataflow.Unsupported(_) => None
+      case LocalDataflow.Failed(e) =>
+        Some((Some(s"${e.getClass.getSimpleName}: ${e.getMessage}"), false, Set.empty))
+      case LocalDataflow.Rows(rows) =>
+        val reached = targets.foldLeft(Option(Set.empty[String])) {
+          case (None, _) => None
+          case (Some(acc), (input, conditions)) =>
+            LocalDataflow.reached(input, conditions, byLeaf).map { indices =>
+              acc ++ indices.map(i => describe(conditions(i)))
+            }
+        }
+        // if coverage cannot be measured locally, fall back rather than under-report it
+        reached.map(r => (None, rows.isEmpty, r))
+    }
+  }
+
+  /** One iteration the ordinary way, against the registered views. */
+  private def runOnSpark(
+      spark: ClassicSparkSession,
+      query: String,
+      targets: Seq[(LogicalPlan, Seq[Expression])]): Iteration =
+    try {
+      val rows = spark.sql(query).collect()
+      (None, rows.isEmpty, coverageOf(spark, query, targets))
+    } catch {
+      case NonFatal(e) => (Some(s"${e.getClass.getSimpleName}: ${e.getMessage}"), false, Set.empty)
+    }
 
   /**
    * Restores the caller's views afterwards.

@@ -62,6 +62,12 @@ object MutationStrategy {
  * @param guided       when true, a candidate that reaches a branch nothing had reached
  *                     is kept and mutated further; when false every candidate is drawn
  *                     from the seed data alone
+ * @param abstractFramework when true, iterations are evaluated by interpreting the
+ *                     query's plan over in-memory rows instead of running a Spark job.
+ *                     The operator semantics are Spark's either way; what goes is the
+ *                     planning, scheduling and task setup that dwarfs a twenty-row query.
+ *                     Any query the interpreter does not support falls back to Spark, so
+ *                     this changes speed and never results.
  *
  * @group fuzz
  */
@@ -70,7 +76,8 @@ case class FuzzConfig(
     strategy: MutationStrategy = MutationStrategy.CoDependent,
     rowsPerTable: Int = 10,
     seed: Long = 0L,
-    guided: Boolean = true) {
+    guided: Boolean = true,
+    abstractFramework: Boolean = true) {
   require(iterations >= 0, s"iterations must not be negative, got $iterations")
   require(rowsPerTable > 0, s"rowsPerTable must be positive, got $rowsPerTable")
 }
@@ -99,6 +106,9 @@ case class FuzzFailure(iteration: Int, error: String, tables: Map[String, Seq[Ro
  * @param totalBranches   branches the query has
  * @param emptyResults    candidates that produced no output rows at all — the symptom
  *                        of inputs that cannot get past a join
+ * @param abstracted      iterations evaluated without Spark. The rest fell back, either
+ *                        because the abstraction was switched off or because the query
+ *                        left the interpreter's supported set.
  *
  * @group fuzz
  */
@@ -107,14 +117,20 @@ case class FuzzResult(
     failures: Seq[FuzzFailure],
     covered: Set[String],
     totalBranches: Int,
-    emptyResults: Int) {
+    emptyResults: Int,
+    abstracted: Int = 0) {
+
+  /** Fraction of iterations that avoided Spark entirely. */
+  def abstractionRatio: Double =
+    if (iterations == 0) 0.0 else abstracted.toDouble / iterations
 
   /** Fraction of the query's branches that some generated input reached. */
   def coverage: Double = if (totalBranches == 0) 1.0 else covered.size.toDouble / totalBranches
 
   override def toString: String =
-    f"FuzzResult($iterations iterations, ${failures.size} failures, " +
-      f"coverage ${coverage * 100}%.0f%% of $totalBranches branches, $emptyResults empty)"
+    f"FuzzResult($iterations iterations ($abstracted without Spark), " +
+      f"${failures.size} failures, coverage ${coverage * 100}%.0f%% of $totalBranches " +
+      f"branches, $emptyResults empty)"
 
   /**
    * The result as a JSON object.
@@ -143,7 +159,7 @@ case class FuzzResult(
     }.mkString(",")
 
     s"""{"iterations":$iterations,"totalBranches":$totalBranches,""" +
-      s""""emptyResults":$emptyResults,"coverage":$coverage,""" +
+      s""""emptyResults":$emptyResults,"coverage":$coverage,"abstracted":$abstracted,""" +
       s""""covered":[${covered.toSeq.sorted.map(quote).mkString(",")}],""" +
       s""""failures":[$failuresJson]}"""
   }
@@ -197,11 +213,13 @@ trait FuzzSupport {
       strategy: String,
       rowsPerTable: Int,
       seed: Long,
-      guided: Boolean): FuzzResult = {
+      guided: Boolean,
+      abstractFramework: Boolean): FuzzResult = {
     import scala.jdk.CollectionConverters._
     fuzz(
       query,
       seeds.asScala.toMap,
-      FuzzConfig(iterations, MutationStrategy.byName(strategy), rowsPerTable, seed, guided))
+      FuzzConfig(iterations, MutationStrategy.byName(strategy), rowsPerTable, seed, guided,
+        abstractFramework))
   }
 }

@@ -161,6 +161,57 @@ class FuzzSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     e.getMessage should include("natural")
   }
 
+  test("abstracting the framework does not change what a campaign finds") {
+    // the whole bar for a faster oracle: same seed, same everything, same answer
+    def run(abstracted: Boolean) = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, seed = 3L, abstractFramework = abstracted))
+
+    val without = run(false)
+    val with_ = run(true)
+
+    with_.covered shouldBe without.covered
+    with_.emptyResults shouldBe without.emptyResults
+    with_.failures.map(_.error) shouldBe without.failures.map(_.error)
+  }
+
+  test("a supported query runs entirely without Spark") {
+    val result = fuzzer.fuzz(joinQuery, seeds, FuzzConfig(iterations = 12, seed = 3L))
+    result.abstracted shouldBe 12
+    result.abstractionRatio shouldBe 1.0 +- 1e-9
+  }
+
+  test("switching the abstraction off runs everything on Spark") {
+    val result = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 5, seed = 3L, abstractFramework = false))
+    result.abstracted shouldBe 0
+    result.abstractionRatio shouldBe 0.0
+  }
+
+  test("an unsupported query falls back rather than losing coverage") {
+    // ORDER BY is outside the interpreter's set, so every iteration goes to Spark
+    val ordered = fuzzer.fuzz(
+      "SELECT cid, amount FROM orders WHERE amount > 100 ORDER BY amount",
+      Map("orders" -> orders),
+      FuzzConfig(iterations = 6, seed = 3L))
+    ordered.abstracted shouldBe 0
+    ordered.iterations shouldBe 6
+    ordered.covered should not be empty
+  }
+
+  test("the abstraction still finds the arithmetic overflow") {
+    val previous = spark.conf.get("spark.sql.ansi.enabled")
+    try {
+      spark.conf.set("spark.sql.ansi.enabled", "true")
+      val result = fuzzer.fuzz(
+        "SELECT oid, amount + amount AS doubled FROM orders",
+        Map("orders" -> orders),
+        FuzzConfig(iterations = 30, rowsPerTable = 20, seed = 11L))
+      result.abstracted should be > 0
+      result.failures should not be empty
+      result.failures.head.error.toLowerCase should include("overflow")
+    } finally spark.conf.set("spark.sql.ansi.enabled", previous)
+  }
+
   test("join equalities are read out of the plan") {
     val plan = spark.sql(joinQuery).queryExecution.analyzed
     FuzzEngine.joinedColumnNames(plan) should contain ("cid", "cid")

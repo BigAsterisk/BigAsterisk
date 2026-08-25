@@ -70,13 +70,15 @@ class FuzzResult:
         self.total_branches = payload["totalBranches"]
         self.empty_results = payload["emptyResults"]
         self.coverage = payload["coverage"]
+        self.abstracted = payload["abstracted"]
         self.covered = set(payload["covered"])
         self.failures = [FuzzFailure(f) for f in payload["failures"]]
 
     def __repr__(self):
-        return ("FuzzResult(%d iterations, %d failures, coverage %.0f%% of %d branches, "
-                "%d empty)" % (self.iterations, len(self.failures), self.coverage * 100,
-                               self.total_branches, self.empty_results))
+        return ("FuzzResult(%d iterations (%d without Spark), %d failures, "
+                "coverage %.0f%% of %d branches, %d empty)" % (
+                    self.iterations, self.abstracted, len(self.failures),
+                    self.coverage * 100, self.total_branches, self.empty_results))
 
 
 class Fuzz:
@@ -88,12 +90,19 @@ class Fuzz:
             spark._jsparkSession)
 
     def fuzz(self, query, seeds, iterations=100, strategy="co-dependent",
-             rows_per_table=10, seed=0, guided=True):
+             rows_per_table=10, seed=0, guided=True, abstract_framework=True):
         """Run a fuzzing campaign against ``query``.
 
         ``seeds`` maps each table name the query reads to a DataFrame. Their rows are
         the corpus generated values are drawn from; only the schema matters for the
         ``random`` strategy.
+
+        With ``abstract_framework`` (the default), iterations are evaluated by
+        interpreting the query's plan over in-memory rows rather than running a Spark
+        job — the operator semantics are Spark's either way, but the planning,
+        scheduling and task setup that dwarf a twenty-row query are gone. Anything the
+        interpreter does not support falls back to Spark, so this changes speed and
+        never results.
 
         The campaign swaps generated data in under those table names while it runs and
         restores the originals afterwards.
@@ -103,5 +112,5 @@ class Fuzz:
             jseeds.put(name, df._jdf)
         result = self._support.fuzzJava(
             query, jseeds, int(iterations), strategy, int(rows_per_table),
-            int(seed), bool(guided))
+            int(seed), bool(guided), bool(abstract_framework))
         return FuzzResult(json.loads(result.json()))

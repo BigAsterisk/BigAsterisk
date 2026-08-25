@@ -56,6 +56,16 @@ check("co-dependent mutation survives the join",
       rnd.empty_results > dep.empty_results,
       "random=%d co-dependent=%d" % (rnd.empty_results, dep.empty_results))
 
+check("supported queries run without Spark", result.abstracted == 10,
+      str(result.abstracted))
+
+# the bar for a faster oracle: same campaign, same answer
+off = f.fuzz(QUERY, seeds, iterations=10, seed=1, abstract_framework=False)
+check("the abstraction runs everything on Spark when off", off.abstracted == 0)
+check("abstracting does not change what a campaign finds",
+      off.covered == result.covered and off.empty_results == result.empty_results,
+      "%s vs %s" % (off.covered, result.covered))
+
 nat = f.fuzz("SELECT cid, amount FROM orders", {"orders": orders},
              iterations=5, strategy="natural", seed=3)
 check("natural strategy runs", nat.iterations == 5)

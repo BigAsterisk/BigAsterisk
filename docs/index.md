@@ -88,12 +88,12 @@ is wrong.
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | [Vega](vega.md) | Incremental re-execution across query revisions | **integrated** |
 | [BigTest](testgen.md) | Symbolic execution over dataflow operators and UDFs | **partial** |
-| [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **partial** |
+| [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **integrated** |
 | [DepFuzz](fuzzing.md) | Co-dependence-aware mutation across joined tables | **integrated** |
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
 | [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **integrated** |
 
-All thirteen now run: eight are complete, five reproduce part of their paper. Each
+All thirteen now run: nine are complete, four reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding. The
 upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

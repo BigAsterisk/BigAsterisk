@@ -76,6 +76,51 @@ object LocalDataflow {
   def leaves(plan: LogicalPlan): Seq[LogicalPlan] =
     plan.collect { case l: LeafNode => l }
 
+  /**
+   * Which of `conditions` at least one row of `input` satisfies.
+   *
+   * Coverage has to be measured locally too, or the framework the abstraction removed
+   * comes straight back in the measurement. Returns `None` when `input` is outside the
+   * supported set, so the caller falls back rather than under-reporting coverage.
+   */
+  def reached(
+      input: LogicalPlan,
+      conditions: Seq[Expression],
+      tables: Map[String, Seq[Row]]): Option[Set[Int]] =
+    try {
+      val rows = eval(input, tables)
+      val predicates = conditions.map(c => Predicate.createInterpreted(bind(c, input.output)))
+      Some(predicates.zipWithIndex.collect {
+        case (p, i) if rows.exists(r => try p.eval(r) catch { case NonFatal(_) => false }) => i
+      }.toSet)
+    } catch {
+      case _: UnsupportedPlan => None
+      case NonFatal(_)        => Some(Set.empty)
+    }
+
+  /**
+   * Matches each leaf of `plan` to the seed table it reads, by schema.
+   *
+   * `None` when the match is not unambiguous — two tables with identical schemas, or a
+   * leaf matching none of them. Guessing here would silently feed one table's generated
+   * rows to another, so an ambiguous plan simply runs on Spark instead.
+   */
+  def leafTables(
+      plan: LogicalPlan,
+      schemas: Map[String, StructType]): Option[Map[String, String]] = {
+    def shape(fields: Seq[(String, org.apache.spark.sql.types.DataType)]) = fields
+
+    val mapping = leaves(plan).map { leaf =>
+      val leafShape = shape(leaf.output.map(a => (a.name, a.dataType)))
+      val candidates = schemas.filter { case (_, schema) =>
+        shape(schema.fields.toSeq.map(f => (f.name, f.dataType))) == leafShape
+      }
+      if (candidates.size != 1) return None
+      leafKey(leaf) -> candidates.head._1
+    }.toMap
+    Some(mapping)
+  }
+
   private def unsupported(what: String): Nothing = throw new UnsupportedPlan(what)
 
   private def eval(plan: LogicalPlan, tables: Map[String, Seq[Row]]): Seq[InternalRow] =
@@ -110,21 +155,10 @@ object LocalDataflow {
       case LocalLimit(limitExpr, child) =>
         eval(child, tables).take(intOf(limitExpr))
 
-      case Sort(order, _, child, _) =>
-        val input = eval(child, tables)
-        val ordering = InterpretedOrdering.forSchema(child.output.map(_.dataType))
-        val keyProjection = InterpretedMutableProjection.createProjection(
-          bind(order.map(_.child), child.output))
-        // stable sort on the projected keys; direction handled per key below
-        val keyed = input.map(r => (keyProjection(r).copy(), r))
-        val comparator = new InterpretedOrdering(
-          order.zipWithIndex.map { case (o, i) =>
-            SortOrder(BoundReference(i, o.child.dataType, o.child.nullable), o.direction,
-              o.nullOrdering, Seq.empty)
-          })
-        keyed.sortWith((a, b) => comparator.compare(a._1, b._1) < 0).map(_._2)
-        // `ordering` is unused; kept out of the comparison path deliberately
-          .ensuring(_ => ordering != null || true)
+      // SELECT DISTINCT analyses to `Distinct`; `Deduplicate` is the keyed form
+      case Distinct(child) =>
+        val seen = mutable.LinkedHashSet.empty[InternalRow]
+        eval(child, tables).filter(r => seen.add(r.copy()))
 
       case Deduplicate(keys, child) =>
         val input = eval(child, tables)
@@ -148,7 +182,11 @@ object LocalDataflow {
         unsupported(other.nodeName)
     }
 
-  /** Inner joins only: everything else changes row multiplicity in ways worth refusing. */
+  /**
+   * Inner joins only. An outer join changes row multiplicity in ways this would have to
+   * reimplement, and reimplementing join semantics is exactly the kind of "close enough"
+   * that makes a fast oracle worthless.
+   */
   private def joinInner(
       joinType: JoinType,
       left: LogicalPlan,

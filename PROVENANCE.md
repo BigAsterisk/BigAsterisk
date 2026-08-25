@@ -32,7 +32,7 @@ repositories remain the historical record; they are not modified by this project
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | integrated (reimplemented) | **no artifact** | — | — | — |
 | BigTest | partial (reimplemented) | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
-| BigFuzz | partial (reimplemented) | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
+| BigFuzz | integrated (reimplemented) | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
 | DepFuzz | integrated (reimplemented) | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
 | NaturalFuzz | integrated (reimplemented) | [SEED-VT/NaturalFuzz](https://github.com/SEED-VT/NaturalFuzz) | `main` | `77ad7ffaa761` | 2025-05-04 |
 | NaturalSym | integrated (reimplemented) | [UCLA-SEAL/NaturalSym](https://github.com/UCLA-SEAL/NaturalSym) | `main` | `e7924fd3e3a9` | 2025-02-15 |
@@ -347,7 +347,7 @@ codebases sharing 90% of their source — which is what the upstream artifacts a
 | NaturalFuzz | `natural` — splice values column-wise out of observed rows | **implemented** |
 | DepFuzz | `co-dependent` — joined columns draw from a shared pool, so rows survive the join | **implemented** |
 | BigFuzz | `random` — values drawn for the column's type, plus a boundary set | **implemented** |
-| BigFuzz | framework abstraction: run the dataflow's semantics without Spark | **not implemented** |
+| BigFuzz | framework abstraction: run the dataflow's semantics without Spark | **implemented** |
 
 Coverage targets are the query's conditional branches — the same ones DeSQL exposes and
 OptDebug scores — and an input reaching a new branch is kept and mutated further, which
@@ -359,10 +359,17 @@ randomly generated join key essentially never matches.
 
 Deliberate differences from the upstream implementations:
 
-- **No framework abstraction.** BigFuzz's headline result is removing ~98% of setup
-  overhead by executing the dataflow's semantics outside Spark. Every iteration here
-  runs a real Spark job, so per-iteration cost is orders of magnitude higher than the
-  paper's. The mutation and guidance are reproduced; the abstraction is not.
+- **Framework abstraction covers a subset of SQL.** Each iteration interprets the
+  query's analyzed plan over in-memory rows using Catalyst's own expression evaluation
+  and declarative aggregates, so the operator semantics are Spark's while the planning,
+  scheduling and task setup are gone. Scans, projections, filters, inner joins,
+  `UNION ALL`, `LIMIT`, `DISTINCT` and grouped or global `SUM`/`COUNT`/`MAX`/`MIN`/`AVG`
+  are supported; anything else falls back to Spark rather than being approximated. On a
+  joined, filtered, grouped query over twenty rows this measured **69.8x** — 68.4 ms per
+  iteration through Spark against 1.0 ms interpreted. The suite pins that both paths
+  produce the same answer; the ratio itself is a benchmark
+  (`examples/runMain org.bigasterisk.examples.FuzzAbstractionBenchmark`) rather than a
+  test, since it depends on the machine.
 - **Generation is schema-driven, not per-benchmark.** The upstream artifacts hand-write
   a mutation operator per benchmark program (`GenCommuteTypeData`, `GenFlightData`, and
   so on). Under a SQL front end the input is a table with a schema, so the schema drives
