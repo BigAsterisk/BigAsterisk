@@ -67,13 +67,15 @@ class TestGenEngine extends TestGenSupport {
       }
 
     val random = new Random(config.seed)
+    val declared = config.parsedDistributions
     val conditions = branchConditions(spark, query)
     val paths = enumeratePaths(conditions, config.maxPaths)
 
     val cases = mutable.ArrayBuffer.empty[TestCase]
     withRestoredViews(seeds) {
       paths.zipWithIndex.foreach { case (path, id) =>
-        cases += buildCase(spark, query, schemas, naturalValues, random, path, id, config)
+        cases += buildCase(
+          spark, query, schemas, naturalValues, declared, random, path, id, config)
       }
     }
 
@@ -88,6 +90,7 @@ class TestGenEngine extends TestGenSupport {
       query: String,
       schemas: Map[String, StructType],
       naturalValues: Map[String, IndexedSeq[Any]],
+      declared: Map[String, Distribution],
       random: Random,
       path: Path,
       id: Int,
@@ -112,7 +115,10 @@ class TestGenEngine extends TestGenSupport {
               val domain = byColumn.getOrElse(
                 field.name, ColumnDomain(field.dataType))
               domain
-                .witness(naturalValues.getOrElse(field.name, IndexedSeq.empty), random)
+                .witness(
+                  naturalValues.getOrElse(field.name, IndexedSeq.empty),
+                  random,
+                  declared.get(field.name))
                 .getOrElse(null)
             }.toIndexedSeq)
           }

@@ -178,6 +178,65 @@ class TestGenSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     an[IllegalArgumentException] should be thrownBy generator.generate("SELECT 1", Map.empty)
   }
 
+  test("a declared distribution shapes the generated values") {
+    val suite = generator.generate(
+      "SELECT cid FROM orders WHERE amount > 100",
+      seeds,
+      TestGenConfig(
+        rowsPerPath = 8,
+        distributions = Map("cid" -> """Discrete("z1", "z2")""")))
+
+    val taking = suite.cases.find(c => c.verified && !c.path.startsWith("NOT")).get
+    // the declared shape is used even though the seed data has entirely different cids
+    taking.tables("orders").map(_.getString(1)).toSet.subsetOf(Set("z1", "z2")) shouldBe true
+  }
+
+  test("a distribution is preferred over the observed values") {
+    val observed = orders.collect().map(_.getInt(2)).toSet
+    val suite = generator.generate(
+      "SELECT cid FROM orders WHERE amount > 100",
+      seeds,
+      TestGenConfig(rowsPerPath = 6, distributions = Map("amount" -> "uniform(101, 120)")))
+
+    val taking = suite.cases.find(c => c.verified && !c.path.startsWith("NOT")).get
+    val amounts = taking.tables("orders").map(_.getInt(2))
+    amounts.foreach { a => a should be >= 101; a should be <= 120 }
+    // and it is genuinely the distribution, not a coincidence of the seed data
+    amounts.exists(observed.contains) shouldBe false
+  }
+
+  test("a distribution that cannot reach the path falls back rather than losing coverage") {
+    // binom(100, 0.1) cannot exceed 100, so it can never satisfy `amount > 100`
+    val suite = generator.generate(
+      "SELECT cid FROM orders WHERE amount > 100",
+      seeds,
+      TestGenConfig(rowsPerPath = 1, distributions = Map("amount" -> "binom(100, 0.1)")))
+
+    val taking = suite.cases.find(!_.path.startsWith("NOT")).get
+    taking.verified shouldBe true
+    taking.tables("orders").head.getInt(2) should be > 100
+  }
+
+  test("a distribution is used for the branch it can satisfy") {
+    val suite = generator.generate(
+      "SELECT cid FROM orders WHERE amount > 100",
+      seeds,
+      TestGenConfig(rowsPerPath = 4, distributions = Map("amount" -> "binom(100, 0.1)")))
+
+    // the NOT branch wants amount <= 100, which the declared shape reaches easily
+    val avoiding = suite.cases.find(_.path.startsWith("NOT")).get
+    avoiding.verified shouldBe true
+    avoiding.tables("orders").foreach(r => r.getInt(2) should be <= 100)
+  }
+
+  test("a malformed declaration is rejected before anything runs") {
+    val e = the[IllegalArgumentException] thrownBy generator.generate(
+      "SELECT cid FROM orders WHERE amount > 100",
+      seeds,
+      TestGenConfig(distributions = Map("amount" -> "gamma(1, 2)")))
+    e.getMessage should include("amount")
+  }
+
   test("the domain solver handles bounds, equality and contradiction") {
     val int = ColumnDomain(IntegerType)
 

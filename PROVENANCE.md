@@ -35,7 +35,7 @@ repositories remain the historical record; they are not modified by this project
 | BigFuzz | partial (reimplemented) | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
 | DepFuzz | integrated (reimplemented) | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
 | NaturalFuzz | integrated (reimplemented) | [SEED-VT/NaturalFuzz](https://github.com/SEED-VT/NaturalFuzz) | `main` | `77ad7ffaa761` | 2025-05-04 |
-| NaturalSym | partial (reimplemented) | [UCLA-SEAL/NaturalSym](https://github.com/UCLA-SEAL/NaturalSym) | `main` | `e7924fd3e3a9` | 2025-02-15 |
+| NaturalSym | integrated (reimplemented) | [UCLA-SEAL/NaturalSym](https://github.com/UCLA-SEAL/NaturalSym) | `main` | `e7924fd3e3a9` | 2025-02-15 |
 
 ### Secondary and historical sources
 
@@ -311,7 +311,7 @@ surface instead.
 | Enumerate paths through the dataflow's conditions and solve for an input per path | **implemented for SQL predicates** |
 | Symbolically execute the *bytecode* of user-defined functions (JPF/SPF + cvc5) | **not implemented** |
 | NaturalSym: prefer witnesses that look like real data | **implemented**, as "a value observed in the seed data" |
-| NaturalSym: sample from user-supplied input distributions | **not implemented** |
+| NaturalSym: sample from user-supplied input distributions | **implemented** |
 
 The solver is an interval-and-equality domain per column rather than an SMT solver,
 which is sufficient for conjunctions of SQL comparisons against literals and is honest
@@ -329,9 +329,12 @@ Deliberate differences from the upstream implementations:
 - **Paths degrade to branches under a budget.** Every combination is enumerated when it
   fits `maxPaths`; beyond that each condition is taken and not taken on its own, and the
   distinction is reported rather than hidden.
-- **Naturalness is "a value that occurred", not a distribution.** NaturalSym's input
-  annotations (`input1 := Discrete("alice","bob") | scipy.binom(100, 0.1)`) have no
-  equivalent here.
+- **Declarations are per column name, not per positional input.** NaturalSym's input
+  annotations are one line per input table, each column separated by `|`. Under a SQL
+  front end columns have names, so declarations are keyed by name — the same information,
+  addressed the way SQL addresses it. `Discrete`, `uniform`, `normal`, `binom`, `poisson`
+  and `zipf` are understood; a declaration that cannot reach a path falls back to a value
+  that can, so naturalness never costs coverage.
 
 ### BigFuzz, DepFuzz, NaturalFuzz — one fuzzer, three strategies
 

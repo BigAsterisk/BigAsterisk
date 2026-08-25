@@ -83,11 +83,22 @@ class TestGen:
         self._support = spark._jvm.org.bigasterisk.api.BigAsterisk.testgen(
             spark._jsparkSession)
 
-    def generate(self, query, seeds, max_paths=32, rows_per_path=3, natural=True, seed=0):
+    def generate(self, query, seeds, max_paths=32, rows_per_path=3, natural=True,
+                 seed=0, distributions=None):
         """Generate a test suite for ``query``.
 
         ``seeds`` maps each table name the query reads to a DataFrame. Schemas are
         required; the rows are the pool of natural witnesses.
+
+        ``distributions`` declares the shape of individual columns by name, as text::
+
+            distributions={"score": "binom(100, 0.1)",
+                           "name": 'Discrete("alice", "bob")'}
+
+        You know the shape of your own data; the solver does not, and left to itself
+        satisfies ``age > 18`` with ``19`` every time. Where a column is declared,
+        witnesses are drawn from that distribution and kept if they satisfy the path —
+        so naturalness never costs coverage.
 
         Generation swaps its inputs in under those table names while it runs and
         restores the originals afterwards.
@@ -95,6 +106,10 @@ class TestGen:
         jseeds = self._spark._jvm.java.util.HashMap()
         for name, df in seeds.items():
             jseeds.put(name, df._jdf)
+        jdists = self._spark._jvm.java.util.HashMap()
+        for column, spec in (distributions or {}).items():
+            jdists.put(column, spec)
         suite = self._support.generateJava(
-            query, jseeds, int(max_paths), int(rows_per_path), bool(natural), int(seed))
+            query, jseeds, int(max_paths), int(rows_per_path), bool(natural), int(seed),
+            jdists)
         return TestSuite(json.loads(suite.json()))

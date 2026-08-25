@@ -13,6 +13,11 @@ import org.apache.spark.sql.{DataFrame, Row}
  *                  look like real records rather than like solver output. This is what
  *                  separates NaturalSym from BigTest.
  * @param seed      random seed, so a run reproduces exactly
+ * @param distributions declared shapes for individual columns, by column name, as text:
+ *        `Map("score" -> "binom(100, 0.1)")`. A developer knows the shape of their own
+ *        data; a solver does not, and left to itself satisfies `age > 18` with `19`
+ *        every time. Where a column is declared, witnesses are drawn from that
+ *        distribution and kept if they satisfy the path.
  *
  * @group testgen
  */
@@ -20,9 +25,20 @@ case class TestGenConfig(
     maxPaths: Int = 32,
     rowsPerPath: Int = 3,
     natural: Boolean = true,
-    seed: Long = 0L) {
+    seed: Long = 0L,
+    distributions: Map[String, String] = Map.empty) {
   require(maxPaths > 0, s"maxPaths must be positive, got $maxPaths")
   require(rowsPerPath > 0, s"rowsPerPath must be positive, got $rowsPerPath")
+
+  /** The declarations, parsed. Throws if any is malformed. */
+  def parsedDistributions: Map[String, Distribution] =
+    distributions.map { case (column, spec) =>
+      try column -> Distribution.parse(spec)
+      catch {
+        case e: IllegalArgumentException =>
+          throw new IllegalArgumentException(s"column '$column': ${e.getMessage}", e)
+      }
+    }
 }
 
 /**
@@ -156,9 +172,10 @@ trait TestGenSupport {
       maxPaths: Int,
       rowsPerPath: Int,
       natural: Boolean,
-      seed: Long): TestSuite = {
+      seed: Long,
+      distributions: java.util.Map[String, String]): TestSuite = {
     import scala.jdk.CollectionConverters._
     generate(query, seeds.asScala.toMap,
-      TestGenConfig(maxPaths, rowsPerPath, natural, seed))
+      TestGenConfig(maxPaths, rowsPerPath, natural, seed, distributions.asScala.toMap))
   }
 }

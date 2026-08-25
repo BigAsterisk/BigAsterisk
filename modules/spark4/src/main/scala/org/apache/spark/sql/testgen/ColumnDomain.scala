@@ -4,6 +4,8 @@ import scala.util.Random
 
 import org.apache.spark.sql.types._
 
+import org.bigasterisk.api.Distribution
+
 /**
  * The values one column may still take, given the constraints gathered so far.
  *
@@ -68,19 +70,61 @@ case class ColumnDomain(
   /**
    * A value satisfying every constraint, or `None` if there is none.
    *
-   * `natural` are values observed in real data. Preferring one of those that satisfies
-   * the constraints is the whole of the naturalness idea: the path is the same, but the
-   * record looks like a record instead of like solver output.
+   * Three sources, in order of how much they know about the data:
+   *
+   *   1. a **declared distribution**, if the caller gave one for this column — the
+   *      developer's own knowledge of the shape of their data;
+   *   2. a value **observed** in the seed data;
+   *   3. a value **synthesised** from the bounds.
+   *
+   * Each is only used if it satisfies the path, so naturalness never costs coverage: a
+   * declared distribution that cannot reach the constraint falls through to a value
+   * that can.
    */
-  def witness(natural: IndexedSeq[Any], random: Random): Option[Any] = {
+  def witness(
+      natural: IndexedSeq[Any],
+      random: Random,
+      distribution: Option[Distribution] = None): Option[Any] = {
     if (isUnsatisfiable) return None
     if (mustBeNull) return Some(null)
     equalTo.foreach(v => return Some(v))
 
-    // Any observed value that fits will do, and picking among them at random keeps
-    // generated rows from all being identical when several tests share a path.
-    val fits = natural.filter(satisfies)
-    if (fits.nonEmpty) Some(fits(random.nextInt(fits.length))) else synthesise(random)
+    distribution.flatMap(sampleFrom(_, random)).orElse {
+      // Any observed value that fits will do, and picking among them at random keeps
+      // generated rows from all being identical when several tests share a path.
+      val fits = natural.filter(satisfies)
+      if (fits.nonEmpty) Some(fits(random.nextInt(fits.length))) else synthesise(random)
+    }
+  }
+
+  /**
+   * Draws from `distribution` until a value fits, giving up after a bounded number of
+   * attempts.
+   *
+   * A declared distribution and a path constraint can simply be incompatible —
+   * `binom(100, 0.1)` cannot produce a value above 100 — and in that case the caller
+   * falls back rather than looping.
+   */
+  private def sampleFrom(distribution: Distribution, random: Random): Option[Any] = {
+    var attempt = 0
+    while (attempt < ColumnDomain.SamplingAttempts) {
+      val drawn = coerce(distribution.sample(random))
+      if (satisfies(drawn)) return Some(drawn)
+      attempt += 1
+    }
+    None
+  }
+
+  /** Brings a sampled value to this column's type. */
+  private def coerce(value: Any): Any = (value, dataType) match {
+    case (n: Number, IntegerType) => n.intValue()
+    case (n: Number, LongType)    => n.longValue()
+    case (n: Number, ShortType)   => n.shortValue()
+    case (n: Number, ByteType)    => n.byteValue()
+    case (n: Number, DoubleType)  => n.doubleValue()
+    case (n: Number, FloatType)   => n.floatValue()
+    case (n: Number, StringType)  => n.toString
+    case (other, _)               => other
   }
 
   /** Whether a concrete value satisfies this domain. */
@@ -138,4 +182,15 @@ case class ColumnDomain(
     case FloatType   => d.toFloat
     case _           => d
   }
+}
+
+object ColumnDomain {
+
+  /**
+   * How many draws to take from a declared distribution before falling back.
+   *
+   * A declared distribution and a path constraint can simply be incompatible, so this
+   * bounds the attempt rather than looping: naturalness is preferred, never required.
+   */
+  val SamplingAttempts: Int = 64
 }

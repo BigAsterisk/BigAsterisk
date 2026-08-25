@@ -78,9 +78,53 @@ ignores half the constraint would be claiming coverage that was never achieved.
 
 ## Naturalness
 
-With `natural = true`, a witness is taken from values that actually occur in the seed
-data whenever one satisfies the constraints. Same paths, same coverage; the records read
-like records.
+A witness comes from one of three sources, in order of how much each knows about the
+data:
+
+1. a **declared distribution** for that column, if you gave one;
+2. a value **observed** in the seed data, when `natural = true`;
+3. a value **synthesised** from the solved bounds.
+
+Each is used only if it satisfies the path, so naturalness never costs coverage.
+
+### Declared distributions
+
+You know the shape of your own data; the solver does not, and left to itself will
+satisfy `age > 18` with `19` every time. Declare the shape and it will not:
+
+```scala
+TestGenConfig(distributions = Map(
+  "name"   -> """Discrete("alice", "bob", "carol")""",
+  "score"  -> "binom(100, 0.1)",
+  "height" -> "normal(170, 10)",
+  "amount" -> "uniform(0, 500)",
+  "visits" -> "poisson(3)",
+  "cid"    -> "zipf(1000, 1.2)"))
+```
+
+```python
+bigasterisk.testgen(spark).generate(query, seeds, distributions={
+    "score": "binom(100, 0.1)",
+    "name": 'Discrete("alice", "bob")'})
+```
+
+`Discrete`, `uniform`, `normal`, `binom`, `poisson` and `zipf` are understood, case
+insensitively. `zipf` is worth knowing about: a skewed key with a long tail is what makes
+a generated join or grouping behave like a real one.
+
+A declaration that cannot reach a path — `binom(100, 0.1)` can never exceed 100, so it
+cannot satisfy `amount > 100` — falls back to a value that can, after a bounded number of
+draws. Coverage wins over naturalness, and the suite pins that.
+
+A misspelled declaration is rejected by name rather than silently ignored, since the
+quiet failure mode would be tests that stop looking like the data without anyone
+noticing.
+
+### Observed values
+
+With `natural = true` and no declaration, a witness is taken from values that actually
+occur in the seed data whenever one satisfies the constraints. Same paths, same coverage;
+the records read like records.
 
 ```scala
 // natural: a real order that happens to satisfy the constraint
@@ -102,9 +146,6 @@ than hidden.
 - **No SMT solver, so no path outside the fragment above.** The original BigTest drives
   a customized Java PathFinder and cvc5 over the *bytecode* of user-defined functions.
   Nothing here goes inside a UDF: the granularity is a SQL predicate.
-- **Naturalness is "a value that occurred", not a distribution.** NaturalSym takes
-  user-supplied distributions (`scipy.binom(100, 0.1)`) and samples from them. Here a
-  natural witness is one drawn from the seed data.
 - **Single-table constraints.** A constraint relating columns of two tables — a join
   condition — is not solved for.
 - **Spark Connect.** Branch conditions are read from the driver-side analyzed plan,

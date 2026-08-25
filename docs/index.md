@@ -91,9 +91,9 @@ is wrong.
 | [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **partial** |
 | [DepFuzz](fuzzing.md) | Co-dependence-aware mutation across joined tables | **integrated** |
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
-| [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **partial** |
+| [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **integrated** |
 
-All thirteen now run: seven are complete, six reproduce part of their paper. Each
+All thirteen now run: eight are complete, five reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding. The
 upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).
