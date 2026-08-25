@@ -56,7 +56,11 @@ jobs:
       - name: Build the site
         run: mkdocs build --strict
 
+      # `enablement` turns Pages on through the API when it is off, so a fresh clone of
+      # this repository publishes without anyone visiting the settings page first.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

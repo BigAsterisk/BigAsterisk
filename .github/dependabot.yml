@@ -5,10 +5,7 @@ updates:
     schedule: { interval: monthly }
     commit-message: { prefix: "ci" }
 
-  # sbt is not natively supported; this keeps the plugin and library versions in
-  # project/ visible to Dependabot's ecosystem-agnostic scanning where it applies.
-  - package-ecosystem: pip
-    directory: /
-    schedule: { interval: monthly }
-    commit-message: { prefix: "deps" }
-    open-pull-requests-limit: 5
+# There is no pip ecosystem here on purpose: the Python front end depends only on the
+# PySpark that the user already runs, and there is no manifest for Dependabot to read.
+# sbt is not natively supported, so library and plugin versions in project/ are bumped
+# by hand against the Spark version the binding declares.
