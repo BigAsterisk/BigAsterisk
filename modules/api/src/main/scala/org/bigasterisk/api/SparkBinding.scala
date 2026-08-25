@@ -61,6 +61,9 @@ trait SparkBinding {
   /** Influence-based provenance for this Spark version. */
   def influence: InfluenceSupport
 
+  /** Fuzz testing for this Spark version. */
+  def fuzz: FuzzSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

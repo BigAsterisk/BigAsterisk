@@ -32,9 +32,9 @@ repositories remain the historical record; they are not modified by this project
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | partial (reimplemented) | **no artifact** | — | — | — |
 | BigTest | planned | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
-| BigFuzz | planned | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
-| DepFuzz | planned | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
-| NaturalFuzz | planned | [SEED-VT/NaturalFuzz](https://github.com/SEED-VT/NaturalFuzz) | `main` | `77ad7ffaa761` | 2025-05-04 |
+| BigFuzz | partial (reimplemented) | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
+| DepFuzz | integrated (reimplemented) | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
+| NaturalFuzz | integrated (reimplemented) | [SEED-VT/NaturalFuzz](https://github.com/SEED-VT/NaturalFuzz) | `main` | `77ad7ffaa761` | 2025-05-04 |
 | NaturalSym | planned | [UCLA-SEAL/NaturalSym](https://github.com/UCLA-SEAL/NaturalSym) | `main` | `e7924fd3e3a9` | 2025-02-15 |
 
 ### Secondary and historical sources
@@ -276,12 +276,41 @@ the UDFs, so Spark is only a compile-time API for the programs under test. That 
 the symbolic engine separable from the Spark version, and it is why these two tools are
 scheduled after the debugging tools.
 
-### BigFuzz, DepFuzz, NaturalFuzz — planned
+### BigFuzz, DepFuzz, NaturalFuzz — one fuzzer, three strategies
 
-DepFuzz and NaturalFuzz share a common ancestor and duplicate their `abstraction`,
-`fuzzer`, `guidance` and `provenance` packages; they differ mainly in the guidance
-strategy. They will be migrated onto one fuzzing core with pluggable guidance. BigFuzz
-is on a different stack (Java, Maven, JQF instrumentation) and is treated separately.
+The three papers differ in exactly one decision: where a generated value comes from.
+They are therefore one fuzzer here with three mutation strategies, rather than three
+codebases sharing 90% of their source — which is what the upstream artifacts are.
+
+| Paper | Strategy | Status |
+|---|---|---|
+| NaturalFuzz | `natural` — splice values column-wise out of observed rows | **implemented** |
+| DepFuzz | `co-dependent` — joined columns draw from a shared pool, so rows survive the join | **implemented** |
+| BigFuzz | `random` — values drawn for the column's type, plus a boundary set | **implemented** |
+| BigFuzz | framework abstraction: run the dataflow's semantics without Spark | **not implemented** |
+
+Coverage targets are the query's conditional branches — the same ones DeSQL exposes and
+OptDebug scores — and an input reaching a new branch is kept and mutated further, which
+is the guidance the DepFuzz and NaturalFuzz papers describe.
+
+The DepFuzz claim is reproduced and asserted by the suite: on a joined query, random
+mutation produces empty results far more often than co-dependent mutation, because a
+randomly generated join key essentially never matches.
+
+Deliberate differences from the upstream implementations:
+
+- **No framework abstraction.** BigFuzz's headline result is removing ~98% of setup
+  overhead by executing the dataflow's semantics outside Spark. Every iteration here
+  runs a real Spark job, so per-iteration cost is orders of magnitude higher than the
+  paper's. The mutation and guidance are reproduced; the abstraction is not.
+- **Generation is schema-driven, not per-benchmark.** The upstream artifacts hand-write
+  a mutation operator per benchmark program (`GenCommuteTypeData`, `GenFlightData`, and
+  so on). Under a SQL front end the input is a table with a schema, so the schema drives
+  generation and no per-benchmark code exists.
+- **Co-dependence is matched by column name** rather than by tracking which code segment
+  reads which dataset region. Join equalities come straight out of the analyzed plan.
+- **Failures are exceptions, not oracle violations.** A campaign finds inputs that make
+  the query throw; checking that an answer is *correct* is BigSift's and OptDebug's job.
 
 ## Reproducing the artifact survey
 

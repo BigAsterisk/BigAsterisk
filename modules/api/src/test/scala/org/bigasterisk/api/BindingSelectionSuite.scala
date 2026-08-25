@@ -16,6 +16,7 @@ class BindingSelectionSuite extends AnyFunSuite with Matchers {
     def vega: VegaSupport = throw new UnsupportedOperationException
     def perfdebug: PerfDebugSupport = throw new UnsupportedOperationException
     def influence: InfluenceSupport = throw new UnsupportedOperationException
+    def fuzz: FuzzSupport = throw new UnsupportedOperationException
     def validate(spark: SparkSession): Unit = ()
   }
 

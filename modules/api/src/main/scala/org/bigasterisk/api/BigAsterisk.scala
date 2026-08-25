@@ -35,6 +35,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname vega Incremental re-execution
  * @groupname perfdebug Performance debugging
  * @groupname influence Influence-based provenance
+ * @groupname fuzz Fuzz testing
  */
 object BigAsterisk {
 
@@ -189,4 +190,11 @@ object BigAsterisk {
    * @group influence
    */
   def influence(spark: SparkSession): InfluenceSupport = binding(spark).influence
+
+  /**
+   * Fuzz testing for `spark`: generate inputs for a query and see what breaks.
+   *
+   * @group fuzz
+   */
+  def fuzz(spark: SparkSession): FuzzSupport = binding(spark).fuzz
 }

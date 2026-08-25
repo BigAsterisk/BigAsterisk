@@ -43,6 +43,7 @@ from bigasterisk.vega import Vega, VegaRun
 from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
 from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
 from bigasterisk.influence import Influence, InfluenceProvenance
+from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
 
 __all__ = [
     "configure",
@@ -73,6 +74,10 @@ __all__ = [
     "influence",
     "Influence",
     "InfluenceProvenance",
+    "fuzz",
+    "Fuzz",
+    "FuzzResult",
+    "FuzzFailure",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -200,3 +205,14 @@ def influence(spark):
         print(ranked[0])
     """
     return InfluenceProvenance(spark)
+
+
+def fuzz(spark):
+    """Fuzz testing for ``spark``.
+
+    Generate inputs for a query and see what breaks::
+
+        result = bigasterisk.fuzz(spark).fuzz(query, {"orders": orders}, iterations=100)
+        print(result.coverage, result.failures)
+    """
+    return Fuzz(spark)

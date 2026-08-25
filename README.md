@@ -69,9 +69,9 @@ tool's page says which.
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |
 | BigTest | Symbolic execution over dataflow operators and UDFs | application | planned |
-| BigFuzz | Fuzzing via framework abstraction | application | planned |
-| DepFuzz | Co-dependence-aware mutation, so inputs survive joins across tables | input data | planned |
-| NaturalFuzz | Splices existing rows and columns into realistic inputs | input data | planned |
+| [BigFuzz](docs/fuzzing.md) | Fuzzing via framework abstraction | application | **partial** — mutation and guidance; abstraction pending |
+| [DepFuzz](docs/fuzzing.md) | Co-dependence-aware mutation, so inputs survive joins across tables | input data | **integrated** |
+| [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
 | NaturalSym | Symbolic execution that generates natural, distribution-aware inputs | application | planned |
 
 Debugging tools are being migrated first, then the testing tools. Every migrated tool

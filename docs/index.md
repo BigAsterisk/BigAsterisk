@@ -34,6 +34,8 @@ written for.
   abnormally much to process.
 - :material-scale-balance: **[FlowDebug](flowdebug.md)** — of the records behind a
   result, which ones actually mattered.
+- :material-bug-outline: **[Fuzzing](fuzzing.md)** — BigFuzz, NaturalFuzz and DepFuzz
+  as one fuzzer with three mutation strategies.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -81,9 +83,9 @@ is wrong.
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | [Vega](vega.md) | Incremental re-execution across query revisions | **partial** |
 | BigTest | Symbolic execution over dataflow operators and UDFs | planned |
-| BigFuzz | Fuzzing via framework abstraction | planned |
-| DepFuzz | Co-dependence-aware mutation across joined tables | planned |
-| NaturalFuzz | Splices existing rows and columns into realistic inputs | planned |
+| [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **partial** |
+| [DepFuzz](fuzzing.md) | Co-dependence-aware mutation across joined tables | **integrated** |
+| [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
 | NaturalSym | Distribution-aware symbolic test generation | planned |
 
 Debugging tools are being migrated first, then the testing tools. The upstream
