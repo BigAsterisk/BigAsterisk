@@ -81,6 +81,16 @@ jobs:
             echo "**Source: GitHub Actions**. The next push to \`main\` will publish."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Somewhere to read the manual from until Pages is on: the same site, downloadable
+      # from this run's summary page.
+      - name: Upload the site as a downloadable artifact
+        if: steps.pages.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-site
+          path: site
+          retention-days: 14
+
       - uses: actions/upload-pages-artifact@v3
         if: steps.pages.outcome == 'success'
         with:
