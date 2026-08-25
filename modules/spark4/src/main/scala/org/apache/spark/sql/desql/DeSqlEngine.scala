@@ -11,6 +11,8 @@ import org.apache.spark.sql.types.BooleanType
 import org.apache.spark.sql.classic.{Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.types.StructType
 
+import org.apache.spark.sql.udf.UdfAnalysis
+
 import org.bigasterisk.api.{Branch, DeSqlSupport, QueryStep}
 
 /**
@@ -240,10 +242,14 @@ private[desql] class Spark4QueryStep(
     ClassicDataset.ofRows(classic, plan)
   }
 
+  // The step's own conditions, plus any inside a profiled Python UDF it calls. A
+  // branch hidden in a UDF is invisible to plan analysis, and therefore invisible to
+  // anything that reasons about which records took which arm; bound to the columns the
+  // call site passes, it becomes an ordinary condition like the rest.
   override lazy val branches: Seq[Branch] =
-    DeSqlEngine.branchConditions(plan).map { condition =>
-      new Spark4Branch(condition, plan.children.head, classic)
-    }
+    (DeSqlEngine.branchConditions(plan) ++ UdfAnalysis.internalBranches(plan, classic))
+      .distinct
+      .map(condition => new Spark4Branch(condition, plan.children.head, classic))
 
   override def toString: String =
     s"[$id] $operator ${if (detail.isEmpty) "" else s"— $detail"}"

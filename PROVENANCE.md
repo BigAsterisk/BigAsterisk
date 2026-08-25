@@ -119,7 +119,7 @@ The paper has two halves. Where each stands:
 | Contribution | Status |
 |---|---|
 | Influence-based provenance for many-to-one dependencies: rank a result's inputs by how much each contributed, from the aggregate's semantics | **implemented for SQL** |
-| Fine-grained taint inside user-defined functions, inserted by source-to-source transformation | **not implemented** |
+| Fine-grained taint inside user-defined functions, inserted by source-to-source transformation | **implemented for Python UDFs**, by reading the function's source rather than rewriting it; Scala UDFs remain opaque |
 
 The influence half maps directly onto SQL, because a SQL aggregate's semantics are
 known in advance: only the largest record influences a `MAX`, and a record's influence
@@ -128,12 +128,20 @@ needed — the ranking is read off the values entering the aggregation in a sing
 For a `MAX` over a group of n records, provenance returns n and influence returns 1,
 which is the precision improvement the paper reports.
 
-The taint half has no counterpart under a SQL front end: the upstream implementation
-rewrites the user's Scala program (`refactor/ProvenanceInserter.scala`,
-`symbolicprimitives/`), and a SQL query is not a program to rewrite while a Python UDF
-is opaque to the JVM. The nearest equivalent in this repository is OptDebug's branch
-scoring, which distinguishes records by which arm of a `CASE WHEN` or `Filter` they
-took — inside the query's own expressions, though not inside a UDF.
+The taint half is not ported but re-derived, and the mechanism is necessarily
+different. The upstream implementation rewrites the user's Scala program
+(`refactor/ProvenanceInserter.scala`, `symbolicprimitives/`) to carry taint-bearing
+values through it; a SQL query is not a program to rewrite. What *is* a program is a
+Python UDF, and its source is readable from the front end, so taint is computed by
+static analysis of it instead — which parameters reach a returned value, and which
+decide a branch whose arms return different things. The result is that an influential
+record's *columns* are narrowed to the ones that could actually reach the result
+(`Influence.columns`), which is the precision the taint half exists to provide.
+
+Two differences from the original are worth stating. It is *static*, so it reports what
+can influence rather than what did on a particular row; and it covers Python only,
+because a Scala UDF's logic arrives on the JVM as bytecode. Anything the analysis cannot
+read is reported, and the whole call stays implicated.
 
 Note that the upstream FlowDebug and OptDebug share roughly 90% of their source — the
 `provenance`, `symbolicprimitives` and `sparkwrapper` packages are near-identical
@@ -161,15 +169,17 @@ The paper rests on three insights. Where each stands:
 | Insight | Status |
 |---|---|
 | Use provenance to shrink the input to a small failing/passing set before debugging | **implemented** — opt-in, by delta debugging over a named base table |
-| Track operation provenance, so it is known which operations processed which records | **implemented for SQL**, at the granularity of plan operators and their conditional branches |
+| Track operation provenance, so it is known which operations processed which records | **implemented for SQL**, at the granularity of plan operators and their conditional branches — including branches inside a Python UDF, bound to the columns the call site passes |
 | Rank operations by spectra — participation in failing versus passing outcomes | **implemented** (Tarantula and Ochiai) |
 
 Deliberate differences from the upstream implementation:
 
-- **Granularity.** The original propagates taint inside user-defined functions. The
-  finest granularity here is a conditional expression of the SQL plan — a `Filter`
-  condition, an arm of an `IF` or `CASE WHEN`. A fault inside a Scala or Python UDF is
-  localised to the operator that calls it, not to a line within it.
+- **Granularity.** The original propagates taint inside user-defined functions. Here the
+  unit is a conditional expression — a `Filter` condition, an arm of an `IF` or
+  `CASE WHEN` — and, for a Python UDF with a registered profile, a branch inside the
+  function, bound to the columns the call site passes and scored as an operation in its
+  own right. A fault inside a *Scala* UDF is still localised only to the operator that
+  calls it.
 - **How spectra are gathered.** No instrumentation and no taint-carrying values. Each
   operation is executed as its own provenance-captured sub-query, and its spectrum is
   the intersection of the records reaching it with the failing and passing populations.
@@ -303,15 +313,17 @@ APIs removed in JDK 9+. They also depend on `jad`, a decompiler last released in
 and on linux/amd64 native binaries. The upstream BigTest repository documents the
 constraint and a staged path out of it, budgeting the JPF port as weeks of work.
 
-That machinery exists for one purpose: to reach *inside a Scala UDF*. Under a SQL front
-end there is no UDF bytecode to symbolically execute — the conditions are in the plan,
-in a form Catalyst already hands over. The technique was therefore applied to that
-surface instead.
+That machinery exists for one purpose: to reach *inside a UDF*. Under a SQL front end
+most conditions never go there — they are in the plan, in a form Catalyst already hands
+over — so the technique was applied to that surface first. For the conditions that *are*
+inside a UDF, a Python function's source is readable from the front end, and reading it
+reaches the same place without a bytecode symbolic executor: see
+**Reading inside a Python UDF** below. Scala UDF bytecode still needs JPF.
 
 | Contribution | Status |
 |---|---|
 | Enumerate paths through the dataflow's conditions and solve for an input per path | **implemented for SQL predicates** |
-| Symbolically execute the *bytecode* of user-defined functions (JPF/SPF + cvc5) | **not implemented** |
+| Symbolically execute the *bytecode* of user-defined functions (JPF/SPF + cvc5) | **implemented for Python UDFs** by static analysis of the function's source — paths, path constraints and return values, so a condition on a UDF's result becomes conditions on its arguments. Scala UDF bytecode is **not implemented** |
 | NaturalSym: prefer witnesses that look like real data | **implemented**, as "a value observed in the seed data" |
 | NaturalSym: sample from user-supplied input distributions | **implemented** |
 
@@ -401,6 +413,48 @@ Deliberate differences from the upstream implementations:
   the mutation strategy rather than repaired.
 - **Failures are exceptions, not oracle violations.** A campaign finds inputs that make
   the query throw; checking that an answer is *correct* is BigSift's and OptDebug's job.
+
+## Reading inside a Python UDF
+
+Three of the tools here stop at the same boundary, and all three stop at it for the same
+reason: a user-defined function is opaque to plan analysis. FlowDebug needs taint inside
+one, OptDebug needs operation-level taint inside one, BigTest needs path constraints from
+one. Upstream, each crosses it by analysing code — source-to-source rewriting for the
+first two, JPF/SPF over bytecode for the third.
+
+For a **Python** UDF, the code is Python source and the front end can read it directly.
+`python/bigasterisk/udf.py` parses the function and records what it found;
+`org.bigasterisk.api.UdfRegistry` holds the result; `org.apache.spark.sql.udf.UdfAnalysis`
+binds it back to the query by substituting each parameter for the argument expression the
+call site passes, then resolving the result with Spark's own analyzer.
+
+| Analysis | What it yields | Which tool uses it |
+|---|---|---|
+| Branch extraction | each `if` condition, as a predicate over the call site's columns | operation isolation (scored as an operation), test generation (a coverage target) |
+| Path enumeration | the conjunction of branch outcomes reaching each `return`, and what it returns | test generation — a condition on the function's *result* becomes conditions on its *arguments* |
+| Taint | which parameters reach a returned value, or decide a branch whose arms return different things | influence-based provenance — narrowing an influential record to the columns that could reach the result |
+
+Differences from the upstream analyses, stated plainly:
+
+- **Python only.** A Scala or Java UDF arrives on the JVM as a closure whose logic is
+  bytecode. Those are still black boxes, and each consumer says so rather than guessing.
+- **Row-at-a-time UDFs only.** A pandas UDF's parameters are Series rather than values,
+  so the same source means something different. Refused by eval type.
+- **Static, not dynamic.** Taint here reports what *can* influence the result, not what
+  did on a particular row. It is sound for exclusion — a parameter absent from the set
+  cannot change the answer — which is the direction that matters for narrowing.
+- **A readable subset, and it refuses the rest out loud.** Comparisons, boolean
+  operators, null tests, membership, `+ - * /`, a handful of string and numeric
+  functions, conditional expressions in a `return`, locals, and free variables that
+  resolve to constants. Python truthiness (`if amount:`) and the operators Spark and
+  Python disagree about on negative operands (`%`, `//`, `**`) are deliberately refused:
+  a subtly wrong branch condition would mis-rank an operation or generate a test that
+  proves nothing. Whatever could not be read is listed in the profile, the affected
+  paths are marked inexact, and an inexact path is never solved through.
+- **Keyed by name, and explicit.** A plan carries a Python UDF's name, so that is what
+  the two sides agree on; a profile whose parameter count does not match the call is
+  never applied. Nothing is registered by default, so a query behaves exactly as it did
+  before until a profile is registered for it.
 
 ## Reproducing the artifact survey
 

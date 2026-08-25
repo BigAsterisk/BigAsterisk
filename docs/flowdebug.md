@@ -80,11 +80,34 @@ removing records and looking at what changes.
 
 The paper's other contribution is fine-grained tracking of control and data flow *within*
 user-defined functions, achieved by rewriting the user's program to carry custom data
-abstractions. That has no counterpart here: a SQL query is not a Scala program to
-rewrite, and a Python UDF is opaque to the JVM.
+abstractions.
 
-FlowDebug therefore ranks by influence over an aggregation's inputs, and does not
-attempt to track control flow inside a user-defined function.
+For a **Python** UDF that is available here, by reading the function's own source. The
+result is a narrower answer: which record influenced a result is half of it, and which
+of that record's *columns* did is the other half.
+
+```python
+def score(amount, note):
+    return amount * 2          # `note` is passed and never read
+
+bigasterisk.udf.register(spark, score)
+
+ranked = bigasterisk.influence(spark).influencers(
+    "SELECT cid, MAX(score(amount, oid)) AS peak FROM orders GROUP BY cid",
+    faulty_where="peak > 1000")
+
+ranked[0].columns     # {'amount'} — without the analysis, both arguments are implicated
+ranked[0].narrowed    # True
+```
+
+An argument the function never lets reach its return — or one that only decides a branch
+whose arms return the same thing — provably cannot change the result, whatever the call
+site looks like. Anything the analysis cannot read is reported and the whole call stays
+implicated, which is the over-approximation this is meant to avoid but is still the
+honest answer. See [Python UDFs](udfs.md) for what is read and what is refused.
+
+A Scala UDF arrives on the JVM as a closure whose logic is bytecode. Those remain
+opaque, and every column the call reads stays implicated.
 
 ## Limitations
 

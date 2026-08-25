@@ -143,9 +143,15 @@ than hidden.
 
 ## Limitations
 
-- **No SMT solver, so no path outside the fragment above.** The original BigTest drives
-  a customized Java PathFinder and cvc5 over the *bytecode* of user-defined functions.
-  Nothing here goes inside a UDF: the granularity is a SQL predicate.
+- **No SMT solver, so no path outside the fragment above.** A constraint that the
+  interval-and-equality solver cannot express makes its path unsupported rather than
+  silently wrong.
+- **Scala UDFs are still opaque.** The original drives a customized Java PathFinder and
+  cvc5 over the *bytecode* of user-defined functions. For a **Python** UDF, registering
+  it with [`bigasterisk.udf`](udfs.md) puts its branches and paths in reach: a condition
+  on the function's *result* is replaced by the conditions on its *arguments* that
+  produce that result, and the solver takes it from there. A Scala UDF is bytecode on
+  the JVM, and a condition testing one remains unsolvable.
 - **Single-table constraints.** A constraint relating columns of two tables — a join
   condition — is not solved for.
 - **Spark Connect.** Branch conditions are read from the driver-side analyzed plan,
@@ -159,8 +165,10 @@ in deep ways: it ships modeled JDK 8 internal classes, reads bytecode up to clas
 52, and relies on `sun.misc` APIs removed in JDK 9+. They also depend on `jad`, a
 decompiler last released in 2001, and on linux/amd64 native binaries.
 
-That machinery exists to reach *inside a Scala UDF*. Under a SQL front end there is no
-UDF bytecode to symbolically execute — the conditions are in the plan, in a form Catalyst
-already hands over. What is implemented here is the technique applied to that surface.
+That machinery exists to reach *inside a UDF*. Under a SQL front end most conditions are
+in the plan already, in a form Catalyst hands over, and the technique is applied to that
+surface. For the conditions that are *not* — the ones inside a Python UDF — the function's
+own source is read instead of its bytecode, which reaches the same place by a shorter
+route: see [Python UDFs](udfs.md).
 See
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

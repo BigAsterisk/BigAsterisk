@@ -47,9 +47,11 @@ from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
 from bigasterisk.testgen import TestGen, TestSuite, TestCase
 from bigasterisk.crashculprit import CrashCulpritGuards, CrashCulprit, CulpritRecord
 from bigasterisk.breakpoint import Breakpoints, Breakpoint
+from bigasterisk import udf
 
 __all__ = [
     "configure",
+    "udf",
     "lineage",
     "bindings",
     "Lineage",

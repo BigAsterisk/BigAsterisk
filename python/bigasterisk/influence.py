@@ -47,10 +47,20 @@ class Influence:
     def __init__(self, payload):
         self.score = payload.pop("__score")
         self.reason = payload.pop("__reason")
+        #: the columns that could actually reach the result. Narrower than the whole
+        #: record when the value passes through a Python UDF with a registered profile
+        #: that ignores some of its arguments — see ``bigasterisk.udf``.
+        self.columns = set(payload.pop("__columns", []))
         self.row = payload
 
+    @property
+    def narrowed(self):
+        """True when only some of the record's columns influenced the result."""
+        return bool(self.columns) and len(self.columns) < len(self.row)
+
     def __repr__(self):
-        return "%.4f  %r  (%s)" % (self.score, self.row, self.reason)
+        where = "  via %s" % ", ".join(sorted(self.columns)) if self.narrowed else ""
+        return "%.4f  %r  (%s)%s" % (self.score, self.row, self.reason, where)
 
 
 class InfluenceProvenance:

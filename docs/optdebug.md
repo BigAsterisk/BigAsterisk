@@ -113,10 +113,13 @@ narrowing, and the right one with it.
   be minimised over one of them at a time.
 - **Narrowing re-runs the query** once per subset delta debugging tests. Fine for
   debugging, wrong for a hot path.
-- **UDF internals are opaque.** The paper propagates taint *inside* user-defined
-  functions by source-to-source transformation. Here the finest granularity is a
-  conditional expression in the SQL plan, so a fault inside a Scala or Python UDF is
-  localised to the operator that calls it, not to a line within it.
+- **Scala UDF internals are opaque.** The paper propagates taint *inside* user-defined
+  functions by source-to-source transformation. For a **Python** UDF that is available:
+  register the function with [`bigasterisk.udf`](udfs.md) and its internal branches are
+  bound to the columns the call site passes, then scored as operations in their own
+  right — a faulty branch inside the function is ranked, not just the operator that
+  calls it. A Scala UDF arrives as a closure whose logic is bytecode, and a fault inside
+  one is still localised only to the operator that calls it.
 - **Cost.** Every operation and branch is executed as its own provenance-captured
   sub-query. That is fine for debugging and wrong for a hot path.
 - **Records are matched by content.** Lineage ids are positions assigned per execution,

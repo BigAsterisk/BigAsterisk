@@ -6,6 +6,7 @@ import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.classic.{ColumnConversions, ExpressionColumnNode, Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.functions.expr
+import org.apache.spark.sql.udf.UdfAnalysis
 
 import org.bigasterisk.api.{Influence, InfluenceSupport}
 
@@ -79,10 +80,20 @@ class InfluenceEngine extends InfluenceSupport {
             functions.zip(argNames).flatMap { case (f, n) => f.children.headOption.map(_ -> n) })
         val inputRows = enriched.collect().toSeq
 
+        // Which columns of an input record can actually reach the result. Normally that
+        // is every column the aggregate's argument mentions; where the argument passes
+        // through a profiled Python UDF it is fewer, because an argument the function
+        // never lets reach its return provably cannot change the answer.
+        val tainted = functions
+          .flatMap(_.children)
+          .flatMap(UdfAnalysis.influencing)
+          .map(_.name)
+          .toSet
+
         val faultyKeys = keyedResults(agg, aggDf, keyNames, faulty)
         val scored = faultyKeys.flatMap { key =>
           val group = inputRows.filter(row => keyOf(row, keyNames) == key)
-          influenceOf(functions, argNames, keyNames, group)
+          influenceOf(functions, argNames, keyNames, group, tainted)
         }
         scored.sortBy(-_.score).take(topK)
     }
@@ -99,7 +110,9 @@ class InfluenceEngine extends InfluenceSupport {
     rowsJson.zip(ranked).map { case (json, influence) =>
       val body = json.trim
       val inner = body.substring(1, body.length - 1)
-      val head = s""""__score":${influence.score},"__reason":${quote(influence.reason)}"""
+      val columns = influence.columns.toSeq.sorted.map(quote).mkString(",")
+      val head = s""""__score":${influence.score},"__reason":${quote(influence.reason)},""" +
+        s""""__columns":[$columns]"""
       if (inner.isEmpty) s"{$head}" else s"{$head,$inner}"
     }
   }
@@ -167,7 +180,8 @@ class InfluenceEngine extends InfluenceSupport {
       functions: Seq[AggregateFunction],
       argNames: Seq[String],
       keyNames: Seq[String],
-      rows: Seq[Row]): Seq[Influence] = {
+      rows: Seq[Row],
+      tainted: Set[String]): Seq[Influence] = {
 
     if (rows.isEmpty) return Seq.empty
     val bookkeeping = keyNames ++ argNames
@@ -188,12 +202,12 @@ class InfluenceEngine extends InfluenceSupport {
     if (perFunction.isEmpty) {
       val score = 1.0 / records.length
       return records.map(r => Influence(r, score,
-        "aggregate semantics not modelled; every record weighted equally"))
+        "aggregate semantics not modelled; every record weighted equally", tainted))
     }
 
     records.zipWithIndex.map { case (record, i) =>
       val best = perFunction.map(scores => scores(i)).maxBy(_._1)
-      Influence(record, best._1, best._2)
+      Influence(record, best._1, best._2, tainted)
     }
   }
 }

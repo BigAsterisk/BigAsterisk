@@ -11,6 +11,7 @@ import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.classic.{ExpressionColumnNode, Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.desql.DeSqlEngine
 import org.apache.spark.sql.functions.max
+import org.apache.spark.sql.udf.UdfAnalysis
 import org.apache.spark.sql.types.StructType
 
 import org.bigasterisk.api._
@@ -236,36 +237,60 @@ class TestGenEngine extends TestGenSupport {
     }
   }
 
-  private def branchConditions(spark: ClassicSparkSession, query: String): Seq[Expression] =
+  /**
+   * The query's branch conditions, grouped by the rows they are evaluated against.
+   *
+   * Both the generator and the verifier work from this, so a condition can never be
+   * generated for and then not looked for — which is what would happen if the two
+   * derived their targets separately.
+   */
+  private def conditionsByInput(
+      spark: ClassicSparkSession,
+      query: String): Seq[(LogicalPlan, Seq[Expression])] =
     DeSqlEngine
       .stepNodes(spark.sql(query).queryExecution.analyzed)
-      .flatMap(node => DeSqlEngine.branchConditions(node.plan))
-      // a Filter contributes both a condition and its negation; the path enumerator
-      // supplies negations itself, so keep only the positive form
-      .filterNot(_.isInstanceOf[Not])
-      .distinct
+      .flatMap { node =>
+        node.plan.children.headOption.map { child =>
+          val own = DeSqlEngine.branchConditions(node.plan)
+            // a Filter contributes both a condition and its negation; the path
+            // enumerator supplies negations itself, so keep only the positive form
+            .filterNot(_.isInstanceOf[Not])
+
+          // A condition that tests a UDF's *result* cannot be solved as written. Where
+          // the function's paths are exact, the conditions under which it returns that
+          // result are ordinary comparisons on its arguments, and those can be solved —
+          // so the opaque test is replaced by them, rather than being carried along to
+          // make every path containing it unsupported.
+          val solvable = own.flatMap { condition =>
+            UdfAnalysis.solveThrough(condition, child, spark).getOrElse(Seq(condition))
+          }
+
+          // and a branch inside the UDF is a target in its own right, whether or not
+          // anything tests the function's result
+          child -> (solvable ++ UdfAnalysis.internalBranches(node.plan, spark)).distinct
+        }
+      }
+      .filter { case (_, conditions) => conditions.nonEmpty }
+
+  private def branchConditions(spark: ClassicSparkSession, query: String): Seq[Expression] =
+    conditionsByInput(spark, query).flatMap { case (_, conditions) => conditions }.distinct
 
   /** Which branch conditions the currently registered data reaches. */
-  private def reachedConditions(spark: ClassicSparkSession, query: String): Set[String] = {
-    val analyzed = spark.sql(query).queryExecution.analyzed
-    DeSqlEngine.stepNodes(analyzed).flatMap { node =>
-      val conditions = DeSqlEngine.branchConditions(node.plan).filterNot(_.isInstanceOf[Not])
-      if (conditions.isEmpty) Seq.empty
-      else
-        try {
-          val df = ClassicDataset.ofRows(spark, node.plan.children.head)
-          val indicators = conditions.zipWithIndex.map { case (c, i) =>
-            max(new Column(ExpressionColumnNode(c))).as(s"__reached_$i")
-          }
-          val summary = df.agg(indicators.head, indicators.tail.toIndexedSeq: _*).collect().head
-          conditions.zipWithIndex.collect {
-            case (c, i) if !summary.isNullAt(i) && summary.getBoolean(i) => describe(c)
-          }
-        } catch {
-          case NonFatal(_) => Seq.empty
+  private def reachedConditions(spark: ClassicSparkSession, query: String): Set[String] =
+    conditionsByInput(spark, query).flatMap { case (input, conditions) =>
+      try {
+        val df = ClassicDataset.ofRows(spark, input)
+        val indicators = conditions.zipWithIndex.map { case (c, i) =>
+          max(new Column(ExpressionColumnNode(c))).as(s"__reached_$i")
         }
+        val summary = df.agg(indicators.head, indicators.tail.toIndexedSeq: _*).collect().head
+        conditions.zipWithIndex.collect {
+          case (c, i) if !summary.isNullAt(i) && summary.getBoolean(i) => describe(c)
+        }
+      } catch {
+        case NonFatal(_) => Seq.empty
+      }
     }.toSet
-  }
 
   private def withRestoredViews[A](seeds: Map[String, DataFrame])(body: => A): A =
     try body

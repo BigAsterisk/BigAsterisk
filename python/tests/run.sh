@@ -71,6 +71,10 @@ submit() {
     "$1"
 }
 
+# The UDF analyser is pure source analysis: run it directly, without a Spark job.
+echo "=== test_udf_analysis.py"
+PYTHONPATH="$ROOT/python" "$PYSPARK_PYTHON" "$ROOT/python/tests/test_udf_analysis.py"
+
 submit "$ROOT/python/tests/test_lineage_pyspark.py"
 submit "$ROOT/python/tests/test_bigsift_pyspark.py"
 submit "$ROOT/python/tests/test_desql_pyspark.py"
@@ -83,3 +87,4 @@ submit "$ROOT/python/tests/test_fuzz_pyspark.py"
 submit "$ROOT/python/tests/test_testgen_pyspark.py"
 submit "$ROOT/python/tests/test_crashculprit_pyspark.py"
 submit "$ROOT/python/tests/test_breakpoint_pyspark.py"
+submit "$ROOT/python/tests/test_udf_pyspark.py"

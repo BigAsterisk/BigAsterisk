@@ -13,8 +13,26 @@ import org.apache.spark.sql.{DataFrame, Row}
  *
  * @group influence
  */
-case class Influence(row: Row, score: Double, reason: String) {
-  override def toString: String = f"$score%.4f  $row  ($reason)"
+case class Influence(
+    row: Row,
+    score: Double,
+    reason: String,
+    columns: Set[String] = Set.empty) {
+
+  /**
+   * True when only some of the record's columns influenced the result.
+   *
+   * Knowing *which* record mattered is half the answer; knowing which of its fields
+   * mattered is the other half, and it is the half that plan analysis cannot give when
+   * the value passes through a user-defined function. Populated when the columns are
+   * known to be fewer than the whole record.
+   */
+  def isNarrowed: Boolean = columns.nonEmpty && columns.size < row.schema.length
+
+  override def toString: String = {
+    val where = if (isNarrowed) s"  via ${columns.toSeq.sorted.mkString(", ")}" else ""
+    f"$score%.4f  $row  ($reason)$where"
+  }
 }
 
 /**

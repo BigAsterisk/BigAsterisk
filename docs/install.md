@@ -78,8 +78,8 @@ binding is selected.
 
 ## Notebooks
 
-There is a notebook for each tool in `notebooks/`, plus deeper dives into the SQL, RDD
-and Python-UDF surfaces. Each one runs on the committed fixtures and ends in assertions,
+There is a notebook for each tool in `notebooks/`, plus deeper dives into the SQL and
+RDD surfaces and one (`python_udfs.ipynb`) on reading inside a Python UDF. Each one runs on the committed fixtures and ends in assertions,
 so executing them is a real check rather than a demo:
 
 ```bash
