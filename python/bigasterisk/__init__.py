@@ -46,6 +46,7 @@ from bigasterisk.influence import Influence, InfluenceProvenance
 from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
 from bigasterisk.testgen import TestGen, TestSuite, TestCase
 from bigasterisk.crashculprit import CrashCulpritGuards, CrashCulprit, CulpritRecord
+from bigasterisk.breakpoint import Breakpoints, Breakpoint
 
 __all__ = [
     "configure",
@@ -88,6 +89,9 @@ __all__ = [
     "CrashCulpritGuards",
     "CrashCulprit",
     "CulpritRecord",
+    "breakpoints",
+    "Breakpoints",
+    "Breakpoint",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -251,3 +255,16 @@ def crash_culprit(spark):
             print(guard.culprit)
     """
     return CrashCulpritGuards(spark)
+
+
+def breakpoints(spark):
+    """Simulated breakpoints for ``spark``.
+
+    Inspect the program state at a point in a query, without pausing anything::
+
+        bp = bigasterisk.breakpoints(spark).breakpoint(orders.filter("amount > 100"))
+        bp.df.groupBy("cid").sum("amount").collect()
+        for row in bp.state():
+            print(row)
+    """
+    return Breakpoints(spark)

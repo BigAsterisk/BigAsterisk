@@ -27,8 +27,8 @@ planted fault, on one small dataset, in one run.
 - :material-bug-check: **[BigSift](bigsift.md)** — the minimal fault-inducing input set.
 - :material-step-forward: **[DeSQL](desql.md)** — step through a SQL query and inspect
   the intermediate data at each part.
-- :material-eye-outline: **[BigDebug](bigdebug.md)** — watchpoints on the records
-  flowing through a query, and which record killed it when it dies.
+- :material-eye-outline: **[BigDebug](bigdebug.md)** — breakpoints, watchpoints, and
+  which record killed the query when it dies.
 - :material-refresh-auto: **[Vega](vega.md)** — successive query revisions start from
   what they share with the last one.
 - :material-target: **[OptDebug](optdebug.md)** — which operation of a query is at
@@ -81,7 +81,7 @@ is wrong.
 |---|---|---|
 | [Titian](titian.md) | Record-level provenance, backward and forward | **integrated** |
 | [BigSift](bigsift.md) | Minimum failure-inducing input set | **integrated** |
-| [BigDebug](bigdebug.md) | Watchpoints and crash-culprit determination | **partial** |
+| [BigDebug](bigdebug.md) | Breakpoints, watchpoints and crash-culprit determination | **integrated** |
 | [FlowDebug](flowdebug.md) | Influence-based provenance, taint inside UDFs | **partial** |
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
 | [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
@@ -93,7 +93,7 @@ is wrong.
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
 | [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **partial** |
 
-All thirteen now run: six are complete, seven reproduce part of their paper. Each
+All thirteen now run: seven are complete, six reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding. The
 upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

@@ -62,7 +62,7 @@ tool's page says which.
 |---|---|---|---|
 | [Titian](docs/titian.md) | Record-level provenance, backward and forward | application | **integrated** |
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
-| [BigDebug](docs/bigdebug.md) | Watchpoints and crash-culprit determination over distributed intermediate data | application | **partial** — breakpoints pending |
+| [BigDebug](docs/bigdebug.md) | Breakpoints, watchpoints and crash-culprit determination over distributed intermediate data | application | **integrated** |
 | [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **partial** — influence; UDF taint pending |
 | [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |
@@ -74,7 +74,7 @@ tool's page says which.
 | [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
 | [NaturalSym](docs/testgen.md) | Symbolic execution that generates natural, distribution-aware inputs | application | **partial** — natural witnesses; distributions pending |
 
-All thirteen now run: six are complete, seven reproduce part of their paper. Each
+All thirteen now run: seven are complete, six reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding — in
 several cases the missing piece is what required a forked Spark, a JDK 8 symbolic
 execution engine, or a benchmark suite that no longer exists. Every tool records the

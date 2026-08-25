@@ -113,6 +113,14 @@ object PlatformTour {
         .ranked.take(3).foreach(op => println(s"  $op"))
     }
 
+    section("BigDebug — a breakpoint: the state at a point, without pausing") {
+      val bp = BigAsterisk.breakpoints(spark).breakpoint(orders.filter(col("amount") > 300))
+      // the query runs at full speed through it; the state is regenerated only now
+      bp.df.groupBy("cid").sum("amount").collect()
+      println(s"  ${bp.count()} records were flowing past; the first few:")
+      bp.state(limit = 3).foreach(r => println(s"    $r"))
+    }
+
     section("BigDebug — a watchpoint on the records flowing past") {
       val wp = BigAsterisk.watchpoints(spark).watch(orders, col("amount") > 1000)
       wp.df.groupBy("cid").sum("amount").collect()

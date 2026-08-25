@@ -25,7 +25,7 @@ repositories remain the historical record; they are not modified by this project
 |---|---|---|---|---|---|
 | Titian | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
 | BigSift | integrated | [SEED-VT/titian-spark-provenance](https://github.com/SEED-VT/titian-spark-provenance) | `main` | `7ea88d40a360` | 2026-06-19 |
-| BigDebug | partial (watchpoints) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
+| BigDebug | integrated (reimplemented) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
 | FlowDebug | partial (reimplemented) | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | partial (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
@@ -65,16 +65,15 @@ Deviations from the published Titian design are documented in
 capture is implemented with codegen-fused tap operators, a mechanism that did not exist
 in the paper because the paper predates whole-stage codegen being a capture surface.
 
-### BigDebug — partial: watchpoints implemented
+### BigDebug — reimplemented, all primitives
 
 The debugging primitives (`org.apache.spark.bdd`, roughly 2,600 lines) were never part
 of the earlier migration, and they cannot be ported mechanically: the original works
 through a **forked executor backend** (`BDExecutorBackend`, `BDDriverBackend`) that
 intercepts task execution inside Spark.
 
-**On-demand watchpoints and crash-culprit determination are implemented**, for Spark SQL
-and PySpark. Three mechanisms in the original each needed the fork, and each has a
-stock-Spark equivalent:
+**All of the paper's primitives are implemented**, for Spark SQL and PySpark. Three
+mechanisms in the original each needed the fork, and each has a stock-Spark equivalent:
 
 | Original | Needed a fork because | Replacement |
 |---|---|---|
@@ -105,9 +104,13 @@ and therefore visible in the plan it holds.
 
 Fine-grained latency alerts are covered by PerfDebug.
 
-Still outstanding, and tracked as re-architecture rather than as a port: **simulated
-breakpoints**. Pausing a live task and resuming it needs a driver-executor channel that
-stock Spark does not offer, which is what the forked executor backend provided.
+**Simulated breakpoints** needed no mechanism at all, once the paper's design was read
+carefully. A simulated breakpoint does not pause the computation: it "retains information
+to re-generate the program state from the latest materialization point", so that setting
+one has "almost zero overhead". The state at a point in a query is defined by the plan up
+to that point, and that plan is already in hand — so regenerating the state is a matter
+of executing it, and setting a breakpoint costs nothing until someone asks. No operator
+is inserted, and the suite asserts the executed plan is unchanged by one.
 
 ### FlowDebug — partial: influence-based provenance implemented
 

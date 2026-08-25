@@ -55,6 +55,9 @@ trait SparkBinding {
   /** Crash-culprit determination for this Spark version. */
   def crashCulprit: CrashCulpritSupport
 
+  /** Simulated breakpoints for this Spark version. */
+  def breakpoints: BreakpointSupport
+
   /** Incremental re-execution across query revisions for this Spark version. */
   def vega: VegaSupport
 

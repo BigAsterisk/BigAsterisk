@@ -33,6 +33,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname desql Step-through SQL debugging
  * @groupname watchpoint Watchpoints
  * @groupname crashculprit Crash-culprit determination
+ * @groupname breakpoint Simulated breakpoints
  * @groupname vega Incremental re-execution
  * @groupname perfdebug Performance debugging
  * @groupname influence Influence-based provenance
@@ -176,6 +177,14 @@ object BigAsterisk {
    * @group crashculprit
    */
   def crashCulprit(spark: SparkSession): CrashCulpritSupport = binding(spark).crashCulprit
+
+  /**
+   * Simulated breakpoints for `spark`: inspect the program state at a point in a query,
+   * without pausing anything.
+   *
+   * @group breakpoint
+   */
+  def breakpoints(spark: SparkSession): BreakpointSupport = binding(spark).breakpoints
 
   /**
    * Incremental re-execution for `spark`: successive revisions of a query start from

@@ -9,12 +9,64 @@ without collecting the intermediate dataset.
 Introduced in *BigDebug: Debugging Primitives for Interactive Big Data Processing in
 Spark* (ICSE 2016).
 
-!!! info "What is implemented"
-    **Watchpoints** and **crash-culprit determination** are implemented, for Spark SQL
-    and PySpark. Simulated breakpoints are **not**; see
-    [below](#the-other-bigdebug-primitives).
+All of BigDebug's primitives are implemented, for Spark SQL and PySpark: simulated
+breakpoints, on-demand watchpoints, crash-culprit determination, and fine-grained
+latency alerts.
 
-## Using it
+## Simulated breakpoints
+
+Stepping through a distributed job the way a conventional debugger steps through a
+program is not affordable — halting every executor to look at one intermediate value
+throws away the throughput the job exists for. A **simulated** breakpoint gives the same
+experience without the halt: it records what is needed to regenerate the state at that
+point, and regenerates it when, and only when, someone looks.
+
+```scala
+val bp = BigAsterisk.breakpoints(spark).breakpoint(orders.filter(col("amount") > 100))
+
+// the rest of the query is built on the breakpoint and runs at full speed
+bp.df.groupBy("cid").sum("amount").collect()
+
+// afterwards, look at what was flowing past that point
+bp.state().foreach(println)
+```
+
+```python
+bp = bigasterisk.breakpoints(spark).breakpoint(orders.filter("amount > 100"))
+bp.df.groupBy("cid").sum("amount").collect()
+for row in bp.state():
+    print(row)
+```
+
+**Setting one costs nothing.** No operator is inserted into the plan, nothing is
+captured while the query runs, and a breakpoint that is never inspected is free — the
+suite asserts that the executed plan is byte-for-byte what it would have been without
+the breakpoint.
+
+Inspecting re-executes the query prefix. `materialize()` pins the state so repeated
+inspection, and any resumed execution, start from there instead — the latest
+materialization point:
+
+```scala
+bp.materialize()
+bp.state()          // served from the pinned state
+bp.count()
+bp.release()
+```
+
+### Resuming with a fix
+
+Resuming through a function rather than simply continuing is what makes a breakpoint
+useful for more than looking. The continuation need not be what the original query did,
+so a wrong step can be corrected and re-run **from the breakpoint** rather than from the
+beginning:
+
+```scala
+bp.materialize()
+bp.resumeWith(_.filter(col("amount") <= 1000).groupBy("cid").sum("amount"))
+```
+
+## Watchpoints
 
 ```scala
 import org.apache.spark.sql.functions.col
@@ -133,7 +185,7 @@ stage processes one record at a time.
     the guard itself. Express the failing computation in SQL when you need the record
     named.
 
-## The other BigDebug primitives
+## The primitives
 
 The ICSE 2016 paper describes four primitives. Watchpoints port cleanly because a guard
 is just an expression and accumulators are a sanctioned executor-to-driver channel. The
@@ -141,14 +193,13 @@ others were built on machinery that only exists in a forked Spark:
 
 | Primitive | Status | Why |
 |---|---|---|
+| Simulated breakpoints | **implemented** | the state at a point is the plan up to it, so it is regenerated on demand rather than captured |
 | On-demand watchpoints | **implemented** | guard as a Catalyst expression, matches via accumulator |
 | Crash culprit determination | **implemented** | a plan operator remembers the record in flight; an accumulator registered to survive task failure carries it back |
 | Fine-grained latency alerts | covered elsewhere in the platform | per-record cost at a chosen point |
-| Simulated breakpoints | not yet | the original pauses tasks through a forked executor backend (`BDExecutorBackend`/`BDDriverBackend`) that intercepts task execution. Pausing a live task and resuming it needs a driver-executor channel that stock Spark does not offer |
 
-Breakpoints are tracked as re-architecture rather than as a port: reproducing them
-without forking Spark means rebuilding them on supported extension points, not
-translating the original code. See
+Each was rebuilt on supported extension points rather than translated from the original
+code, which forked Spark. See
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).
 
 ## Relationship to the published tool
