@@ -35,7 +35,7 @@ jobs:
 
       - name: Cache Spark distribution
         id: spark-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/spark-4.1.2-bin-hadoop3
           key: ${{ runner.os }}-spark-4.1.2-bin-hadoop3
