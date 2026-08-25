@@ -18,6 +18,16 @@ cd BigAsterisk
 bin/bootstrap            # JDK 17 + sbt + Python 3.11 + Spark 4.1.2 (--no-spark skips ~400 MB)
 ```
 
+## See it work
+
+```bash
+bin/bigasterisk tour
+```
+
+Runs every tool against one small dataset in a single process — the quickest check that
+the build is sound, and the quickest way to see what each tool is for. It exits non-zero
+if any tool fails, and CI runs it on every push.
+
 ## Build
 
 ```bash

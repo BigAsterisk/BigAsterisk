@@ -3,8 +3,9 @@
 # stdin connects to the interactive menu, and pins the project-local JDK 17 plus the
 # module opens Spark 4 needs.
 #
-#   bin/bigasterisk                 # interactive menu
-#   bin/bigasterisk weather max     # one-shot: run a scenario with an oracle
+#   bin/bigasterisk tour            # every tool, on one small dataset, in one run
+#   bin/bigasterisk                 # interactive BigSift menu
+#   bin/bigasterisk weather max     # one-shot: run a BigSift scenario with an oracle
 #
 # Environment:
 #   BIGASTERISK_HEAP   JVM heap for the driver (default 6g)
@@ -20,9 +21,18 @@ fi
 if [ -d "$JDK/Contents/Home" ]; then JAVA_HOME="$JDK/Contents/Home"; else JAVA_HOME="$JDK"; fi
 export JAVA_HOME
 
+# The tour runs on the small committed dataset and needs no generated data.
+MAIN=org.bigasterisk.examples.BigSiftCLI
+if [ "$1" = "tour" ]; then
+  MAIN=org.bigasterisk.examples.PlatformTour
+  shift
+  SKIP_DEMO_DATA=1
+fi
+
 # Generate the demo datasets on first run.
-if [ ! -f "$ROOT/examples/data/airport.csv" ] || [ ! -f "$ROOT/examples/data/weather.csv" ] \
-   || [ ! -f "$ROOT/examples/data/student.txt" ]; then
+if [ -z "$SKIP_DEMO_DATA" ] && { [ ! -f "$ROOT/examples/data/airport.csv" ] \
+   || [ ! -f "$ROOT/examples/data/weather.csv" ] \
+   || [ ! -f "$ROOT/examples/data/student.txt" ]; }; then
   PY="${PYSPARK_PYTHON:-$(command -v python3)}"
   if [ -z "$PY" ]; then
     echo "python3 is needed to generate the demo datasets." >&2
@@ -60,4 +70,4 @@ exec "$JAVA_HOME/bin/java" \
   --add-opens=java.base/sun.security.action=ALL-UNNAMED \
   --add-opens=java.base/sun.util.calendar=ALL-UNNAMED \
   -cp "$(cat "$CPFILE")" \
-  org.bigasterisk.examples.BigSiftCLI "$@"
+  "$MAIN" "$@"

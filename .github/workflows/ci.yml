@@ -57,6 +57,11 @@ jobs:
       - name: Package
         run: sbt -batch package
 
+      # The tour runs every tool against one dataset in one process, so it catches
+      # anything that breaks when the tools are used together rather than in isolation.
+      - name: Platform tour
+        run: sbt -batch 'examples/runMain org.bigasterisk.examples.PlatformTour'
+
       - name: Scaladoc
         run: sbt -batch unidoc
 

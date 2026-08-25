@@ -89,8 +89,21 @@ Requirements: JDK 17+, and a Spark 4.1.x installation if you want to run on a cl
 so the build never depends on what happens to be on your `PATH`:
 
 ```bash
-bin/bootstrap          # one-time: JDK 17 + sbt + Spark 4.1.2 into tools/
+bin/bootstrap          # one-time: JDK 17 + sbt + Python + Spark 4.1.2 into tools/
+bin/bigasterisk tour   # every tool, on one small dataset, in one run
 bin/sbt test           # build and run the test suites
+```
+
+The tour is the fastest way to see what the platform does. It runs a query with a
+planted fault and lets each tool answer a different question about it:
+
+```
+── FlowDebug — which of them actually mattered
+  0.9936  [o8,c2,99999]  (contribution 99.4% of the total magnitude)
+── OptDebug — which operation is at fault
+  1.000  [1] Aggregate branch — (amount > 1000)  (failing=1, passing=0)
+── BigDebug — which record killed the query
+  partition 0, record 7: [o8,c2,99999]
 ```
 
 To use BigAsterisk from your own application:
@@ -114,7 +127,7 @@ PySpark users ship `python/bigasterisk` with `--py-files` and use
 | `modules/bigsift` | Fault-inducing input isolation |
 | `modules/optdebug` | Fault-inducing *operation* isolation (depends only on `api`) |
 | `python/bigasterisk` | PySpark front end |
-| `examples` | Runnable demos and benchmarks |
+| `examples` | The platform tour, plus per-tool demos and benchmarks |
 | `tpcds` | TPC-DS coverage harness and re-execution oracle |
 | `notebooks` | End-to-end notebooks (SQL, PySpark, RDD) |
 | `docs` | Documentation site (`mkdocs serve`) |

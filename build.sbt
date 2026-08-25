@@ -111,7 +111,7 @@ lazy val optdebug = (project in file("modules/optdebug"))
   )
 
 lazy val examples = (project in file("examples"))
-  .dependsOn(api, spark4, bigsift)
+  .dependsOn(api, spark4, bigsift, optdebug)
   .settings(
     name := "bigasterisk-examples",
     commonSettings,

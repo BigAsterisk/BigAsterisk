@@ -77,7 +77,10 @@ case class ColumnDomain(
     if (mustBeNull) return Some(null)
     equalTo.foreach(v => return Some(v))
 
-    natural.filter(satisfies).headOption.orElse(synthesise(random))
+    // Any observed value that fits will do, and picking among them at random keeps
+    // generated rows from all being identical when several tests share a path.
+    val fits = natural.filter(satisfies)
+    if (fits.nonEmpty) Some(fits(random.nextInt(fits.length))) else synthesise(random)
   }
 
   /** Whether a concrete value satisfies this domain. */

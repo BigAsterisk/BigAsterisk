@@ -14,6 +14,9 @@ written for.
 
 ## Where to go
 
+Run `bin/bigasterisk tour` to see every tool answer a different question about the same
+planted fault, on one small dataset, in one run.
+
 <div class="grid cards" markdown>
 
 - :material-rocket-launch: **[Usage](usage.md)** — SQL and PySpark quick starts.
