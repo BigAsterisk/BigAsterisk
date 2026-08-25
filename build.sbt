@@ -111,9 +111,23 @@ lazy val examples = (project in file("examples"))
     Compile / run / connectInput := true
   )
 
+// One Scaladoc site across every module: `sbt unidoc` -> target/scala-2.13/unidoc.
+// The manual (mkdocs) links to it as api/index.html; see docs/install.md.
 lazy val root = (project in file("."))
+  .enablePlugins(ScalaUnidocPlugin)
   .aggregate(api, spark4, bigsift, examples)
   .settings(
     name := "bigasterisk",
-    publish / skip := true
+    publish / skip := true,
+    ScalaUnidoc / unidoc / unidocProjectFilter := inProjects(api, spark4, bigsift),
+    ScalaUnidoc / unidoc / scalacOptions ++= Seq(
+      "-doc-title", "BigAsterisk — debugging and testing for Apache Spark",
+      "-doc-version", version.value,
+      "-doc-root-content", ((ThisBuild / baseDirectory).value / "rootdoc.txt").getAbsolutePath,
+      "-groups",
+      // document the capture engine too: these docs are meant to explain the code,
+      // not only its public surface
+      "-private",
+      "-no-link-warnings"
+    )
   )

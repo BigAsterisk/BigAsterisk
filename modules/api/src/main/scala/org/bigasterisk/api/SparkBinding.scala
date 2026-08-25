@@ -46,6 +46,9 @@ trait SparkBinding {
   /** Record-level data provenance for this Spark version. */
   def lineage: LineageSupport
 
+  /** Step-through SQL debugging for this Spark version. */
+  def desql: DeSqlSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

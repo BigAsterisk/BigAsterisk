@@ -65,7 +65,7 @@ tests in this repository.
 | FlowDebug | Influence-based provenance, taint propagated inside UDFs | application | planned |
 | OptDebug | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | planned |
 | PerfDebug | Attributes computation skew to the records causing it | execution metrics | planned |
-| DeSQL | Step-through SQL debugging via automated query decomposition | SQL query | planned |
+| [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | Vega | Incremental re-execution across successive query revisions | query history | planned |
 | BigTest | Symbolic execution over dataflow operators and UDFs | application | planned |
 | BigFuzz | Fuzzing via framework abstraction | application | planned |

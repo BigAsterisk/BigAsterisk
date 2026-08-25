@@ -33,7 +33,7 @@ spark = bigasterisk.configure(SparkSession.builder).getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
 
 base = os.path.dirname(os.path.abspath(__file__))
-csv = os.path.join(base, "..", "..", "src", "test", "resources", "bigsift_sales.csv")
+csv = os.path.join(base, "..", "..", "modules", "spark4", "src", "test", "resources", "bigsift_sales.csv")
 spark.read.schema("category STRING, amount INT").csv(csv) \
     .createOrReplaceTempView("sales")
 

@@ -11,6 +11,7 @@ class BindingSelectionSuite extends AnyFunSuite with Matchers {
   private class FakeBinding(val name: String, val sparkVersions: String) extends SparkBinding {
     def requiredConf: Map[String, String] = Map.empty
     def lineage: LineageSupport = throw new UnsupportedOperationException
+    def desql: DeSqlSupport = throw new UnsupportedOperationException
     def validate(spark: SparkSession): Unit = ()
   }
 

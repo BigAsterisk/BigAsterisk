@@ -6,7 +6,7 @@
 - **sbt 1.10+**
 - **Apache Spark 4.1.x** — `spark-core` and `spark-sql` are `Provided`; BigAsterisk
   attaches to the Spark you already run
-- **Python 3.9+** for the PySpark front end
+- **Python 3.10+** for the PySpark front end
 
 `bin/bootstrap` fetches a project-local JDK, sbt and Spark distribution into `tools/`,
 so the build never depends on what happens to be on your `PATH`. Nothing is installed
@@ -15,7 +15,7 @@ outside the repository.
 ```bash
 git clone https://github.com/BigAsterisk/BigAsterisk.git
 cd BigAsterisk
-bin/bootstrap            # JDK 17 + sbt + Spark 4.1.2  (add --no-spark to skip ~400 MB)
+bin/bootstrap            # JDK 17 + sbt + Python 3.11 + Spark 4.1.2 (--no-spark skips ~400 MB)
 ```
 
 ## Build
@@ -93,16 +93,20 @@ at JDK 17+.
 ## API documentation (Scaladoc)
 
 ```bash
-bin/sbt doc      # -> modules/*/target/scala-2.13/api/index.html
+bin/sbt unidoc   # -> target/scala-2.13/unidoc/index.html
 ```
 
-The generated HTML is the full API and internals reference: the public API grouped by
-task, and the capture-engine internals (tap operators, runtimes, block formats).
+One Scaladoc site across every module: the public API grouped by task, plus the
+capture-engine internals (tap operators, runtimes, block formats).
 
 ## Documentation site
 
 ```bash
 pip install mkdocs-material
+
+# The manual links to api/index.html, so generate the Scaladoc into docs/api first.
+bin/sbt unidoc && rm -rf docs/api && cp -r target/scala-2.13/unidoc docs/api
+
 mkdocs serve                 # http://127.0.0.1:8000
 mkdocs build --strict        # what CI runs: broken links fail the build
 ```

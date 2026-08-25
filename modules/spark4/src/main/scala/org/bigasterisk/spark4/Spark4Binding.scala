@@ -3,7 +3,9 @@ package org.bigasterisk.spark4
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
-import org.bigasterisk.api.{LineageSupport, SparkBinding, TraceCursor}
+import org.apache.spark.sql.desql.DeSqlEngine
+
+import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -31,6 +33,8 @@ class Spark4Binding extends SparkBinding {
     Spark4Binding.checkExtensions(spark.conf.getOption("spark.sql.extensions"))
 
   override val lineage: LineageSupport = new Spark4Lineage
+
+  override val desql: DeSqlSupport = new DeSqlEngine
 }
 
 object Spark4Binding {

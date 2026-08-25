@@ -1,0 +1,48 @@
+=BigAsterisk: a unified debugging and testing platform for Apache Spark=
+
+BigAsterisk brings thirteen research systems for debugging and testing data-intensive
+scalable computing into one codebase that runs on '''stock Apache Spark''' — no forked
+Spark, no patched jars.
+
+This is the '''API reference'''. The '''manual''' — usage, architecture, per-tool
+guides, the command and flag reference, tuning, and TPC-DS coverage — is the
+documentation site:
+
+  - [[https://bigasterisk.github.io/BigAsterisk/ Documentation site]]
+  - [[https://github.com/BigAsterisk/BigAsterisk Source on GitHub]]
+
+==Where to start==
+
+  - [[org.bigasterisk.api.BigAsterisk]] — the entry point: configure a session, then
+    reach the tools through it.
+  - [[org.bigasterisk.api.LineageSupport]] — record-level data provenance.
+  - [[org.bigasterisk.api.DeSqlSupport]] — step-through SQL debugging.
+  - [[org.bigasterisk.api.SparkBinding]] — the service interface that binds the tools
+    to one family of Spark releases. Everything version-specific lives behind it.
+
+==Quick start (Spark SQL)==
+{{{
+import org.apache.spark.sql.SparkSession
+import org.bigasterisk.api.BigAsterisk
+
+val spark = BigAsterisk.configure(SparkSession.builder().master("local[*]")).getOrCreate()
+
+val lineage = BigAsterisk.lineage(spark)
+lineage.enableCapture(spark)
+
+val df = spark.sql("SELECT category, SUM(amount) AS total FROM sales GROUP BY category")
+val rows = lineage.collectWithLineage(df)
+
+lineage.trace(df, Seq(rows.head._2)).goBack().show(full = true).foreach(println)
+lineage.releaseLineage(df)
+}}}
+
+==Implementation packages==
+
+  - `org.bigasterisk.spark4` — the Spark 4.x binding.
+  - `org.apache.spark.lineage`, `org.apache.spark.sql.lineage` — the capture engine.
+    These sit in Spark's namespace because tap operators must subclass `SparkPlan` and
+    `RDD` and reach a small number of `private[spark]` members; doing that from a
+    library module rather than a patched build is what keeps the distribution stock.
+  - `org.apache.spark.sql.desql` — query decomposition over stock Catalyst.
+  - `org.apache.spark.bigsift` — fault-inducing input isolation.

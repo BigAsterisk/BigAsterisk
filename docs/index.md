@@ -22,6 +22,8 @@ written for.
 - :material-history: **[Titian](titian.md)** — record-level data provenance, the engine
   the other tools build on.
 - :material-bug-check: **[BigSift](bigsift.md)** — the minimal fault-inducing input set.
+- :material-step-forward: **[DeSQL](desql.md)** — step through a SQL query and inspect
+  the intermediate data at each part.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -65,7 +67,7 @@ is wrong.
 | FlowDebug | Influence-based provenance, taint inside UDFs | planned |
 | OptDebug | Ranks the operations behind a wrong result | planned |
 | PerfDebug | Attributes computation skew to the records causing it | planned |
-| DeSQL | Step-through SQL debugging via query decomposition | planned |
+| [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | Vega | Incremental re-execution across query revisions | planned |
 | BigTest | Symbolic execution over dataflow operators and UDFs | planned |
 | BigFuzz | Fuzzing via framework abstraction | planned |

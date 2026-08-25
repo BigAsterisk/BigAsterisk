@@ -1,0 +1,84 @@
+package org.bigasterisk.api
+
+import org.apache.spark.sql.{DataFrame, SparkSession}
+import org.apache.spark.sql.types.StructType
+
+/**
+ * One step of a decomposed SQL query — a node of the query's plan, together with the
+ * intermediate data it produces.
+ *
+ * Steps are what makes step-through debugging of a SQL query possible: instead of
+ * seeing only the final answer, you inspect the rows flowing out of each constituent
+ * part, the way a watchpoint exposes an intermediate value in a conventional debugger.
+ *
+ * @group desql
+ */
+trait QueryStep {
+
+  /** Position in the decomposition. Leaves come first, the final result last. */
+  def id: Int
+
+  /** The relational operator at this step, e.g. `"Filter"`, `"Join"`, `"Aggregate"`. */
+  def operator: String
+
+  /**
+   * A readable rendering of what the operator does — the filter condition, the join
+   * keys, the grouping and aggregate expressions.
+   */
+  def detail: String
+
+  /** Ids of the steps feeding this one, in operand order (left input first). */
+  def childIds: Seq[Int]
+
+  /** The schema of this step's intermediate result. */
+  def schema: StructType
+
+  /**
+   * The intermediate rows produced at this step.
+   *
+   * Materialising this runs the sub-query rooted here — the work up to this point in
+   * the plan, and no more. It is a normal `DataFrame`, so it can be filtered, counted
+   * or joined like any other.
+   */
+  def data: DataFrame
+}
+
+/**
+ * Step-through debugging for Spark SQL: decompose a query into its constituent parts
+ * and inspect the intermediate data at each one.
+ *
+ * Obtain an instance from [[BigAsterisk.desql]].
+ *
+ * {{{
+ * val df = spark.sql("SELECT c.name, SUM(o.amount) FROM orders o " +
+ *                    "JOIN customers c ON o.cid = c.cid GROUP BY c.name")
+ *
+ * BigAsterisk.desql(spark).decompose(df).foreach { step =>
+ *   println(s"[${step.id}] ${step.operator} ${step.detail}")
+ *   step.data.show()
+ * }
+ * }}}
+ *
+ * @group desql
+ */
+trait DeSqlSupport {
+
+  /**
+   * Breaks `df` into the sequence of steps its plan describes, ordered so that every
+   * step appears after the steps feeding it.
+   *
+   * Nodes that do not change the data — table aliases and similar bookkeeping — are
+   * folded away, so each step corresponds to something a reader would recognise as a
+   * part of their query.
+   */
+  def decompose(df: DataFrame): Seq[QueryStep]
+
+  /**
+   * Decomposes the query text `sql` in the context of `spark`.
+   *
+   * Equivalent to `decompose(spark.sql(sql))`, and provided so callers holding a query
+   * string do not have to build the DataFrame first.
+   */
+  def decompose(spark: SparkSession, sql: String): Seq[QueryStep] =
+    decompose(spark.sql(sql))
+}

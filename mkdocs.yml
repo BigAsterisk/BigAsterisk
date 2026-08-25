@@ -42,6 +42,7 @@ nav:
   - Tools:
       - Titian (data provenance): titian.md
       - BigSift (automated debugging): bigsift.md
+      - DeSQL (step-through SQL): desql.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md

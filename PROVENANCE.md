@@ -11,6 +11,9 @@ repositories remain the historical record; they are not modified by this project
 
 - **integrated** — builds, runs, and is covered by tests in this repository
 - **planned** — artifact gathered and analysed; migration not yet done
+- **integrated (reimplemented)** — the technique is implemented and tested here, but
+  the upstream source could not be ported because it depended on a forked Spark; the
+  upstream artifact was used as the specification and cross-check
 - **no artifact** — no public source survives; the technique must be reimplemented
   from the paper
 
@@ -24,7 +27,7 @@ repositories remain the historical record; they are not modified by this project
 | FlowDebug | planned | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | planned | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | planned | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
-| DeSQL | planned | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
+| DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | **no artifact** | — | — | — | — |
 | BigTest | planned | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
 | BigFuzz | planned | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
@@ -87,12 +90,34 @@ The upstream artifact stores lineage in Apache Ignite; the migration will target
 capture engine already in `modules/spark4` instead, which removes the external
 dependency.
 
-### DeSQL — planned
+### DeSQL — integrated, reimplemented
 
-Upstream is a fork of Spark 3.0 (`spark-sql-debug`), with the tool itself confined to
-`sql/core/.../sql/debugger/SubQueryStorage.scala` and a Spark UI tab. Because the
-decomposition works on Catalyst logical plans, it maps well onto the same
-`spark.sql.extensions` mechanism the lineage engine already uses, so no fork is needed.
+Upstream is a fork of Spark 3.0 (`spark-sql-debug`), with the tool confined to
+`sql/core/.../sql/debugger/SubQueryStorage.scala` and a Spark UI tab. It could not be
+ported, because it does not stand on Catalyst's public surface: it calls
+`plan.getMappingIndex()`, `plan.allChildren`, `plan.accept(visitor)` and
+`spark.getDebugBuffer()`, none of which exist in Apache Spark. The fork adds them —
+a `mappingIndex` field and visitor hooks injected into Catalyst's own plan and
+expression classes, plus `SubQueryGeneratorVisitor` and `DataRegeneratorVisitor` under
+`org.apache.spark.sdb`.
+
+BigAsterisk therefore re-derives the same decomposition from the **unmodified analyzed
+plan**. Attributes in a Catalyst plan flow strictly bottom-up, so the subtree rooted at
+any node is already a complete, resolved query computing "the query so far"; wrapping
+each node with `Dataset.ofRows` yields that step's intermediate data. This needs no
+injected field and no fork.
+
+Deliberate differences from the upstream implementation:
+
+- **Steps come from the analyzed plan**, so they follow the order the query states
+  rather than the order Spark will execute after optimization.
+- **Wrapper nodes are folded away** (`SubqueryAlias`, `View`) and their names carried
+  down, so a scan reports itself as `orders AS o` rather than as an anonymous relation.
+- **No Spark UI tab.** Upstream renders results into a forked UI page; the
+  reimplementation exposes steps as ordinary `DataFrame`s, so any front end — notebook,
+  shell, PySpark — can display them.
+- **Correlated subqueries are refused** with a clear error rather than returning rows,
+  since their plans carry outer references and cannot execute standalone.
 
 ### Vega — no artifact
 

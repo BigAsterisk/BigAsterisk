@@ -15,6 +15,7 @@ tpcds/data/
 
 # Docs build
 site/
+docs/api/
 
 # Python
 __pycache__/

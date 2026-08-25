@@ -3,7 +3,7 @@
 # host's JDK, sbt or Spark installation. Safe to re-run: anything already present
 # is left alone.
 #
-#   bin/bootstrap              # JDK 17 + sbt + Spark distribution
+#   bin/bootstrap              # JDK 17 + sbt + Python 3.11 + Spark distribution
 #   bin/bootstrap --no-spark   # skip the Spark distribution (~400 MB)
 #
 # Nothing is installed outside this repository.
@@ -14,6 +14,8 @@ TOOLS="$ROOT/tools"
 JDK_VERSION=17
 SBT_VERSION=1.10.7
 SPARK_VERSION=4.1.2
+PYTHON_VERSION=3.11.16
+PYTHON_BUILD=20260814
 HADOOP_PROFILE=hadoop3
 
 WANT_SPARK=1
@@ -56,6 +58,25 @@ else
   echo "sbt $SBT_VERSION: installed"
 fi
 
+# ---- Python -----------------------------------------------------------------
+# PySpark 4.1 needs Python 3.10+: its sql/types.py evaluates PEP 604 unions
+# (`int | None`) at import time, which 3.9 cannot parse. Rather than depend on the
+# host having a new enough interpreter, fetch a standalone build.
+if [ -x "$TOOLS/python/bin/python3" ]; then
+  echo "Python $PYTHON_VERSION: already present"
+else
+  case "$OS" in
+    mac)   PY_TRIPLE="$( [ "$ARCH" = aarch64 ] && echo aarch64-apple-darwin || echo x86_64-apple-darwin )" ;;
+    linux) PY_TRIPLE="$( [ "$ARCH" = aarch64 ] && echo aarch64-unknown-linux-gnu || echo x86_64-unknown-linux-gnu )" ;;
+  esac
+  echo "Python $PYTHON_VERSION: downloading ($PY_TRIPLE)..."
+  curl -fsSL -o "$TOOLS/python.tar.gz" \
+    "https://github.com/astral-sh/python-build-standalone/releases/download/${PYTHON_BUILD}/cpython-${PYTHON_VERSION}+${PYTHON_BUILD}-${PY_TRIPLE}-install_only.tar.gz"
+  tar xzf "$TOOLS/python.tar.gz" -C "$TOOLS"
+  rm -f "$TOOLS/python.tar.gz"
+  echo "Python $PYTHON_VERSION: installed"
+fi
+
 # ---- Spark distribution -----------------------------------------------------
 # Needed by the local-cluster test suites, which launch real executor JVMs through
 # Spark's launcher, and by the PySpark tests.
@@ -75,4 +96,5 @@ fi
 
 echo
 echo "Toolchain ready in tools/. Next:"
-echo "    bin/sbt test"
+echo "    bin/sbt test           # Scala suites, including local-cluster mode"
+echo "    python/tests/run.sh    # PySpark end-to-end"

@@ -37,6 +37,7 @@ the Python path (``--py-files``).
 
 from bigasterisk.lineage import Lineage, TraceCursor
 from bigasterisk.bigsift import BigSift, BigSiftResult, ddmin
+from bigasterisk.desql import DeSql, QueryStep
 
 __all__ = [
     "configure",
@@ -47,6 +48,9 @@ __all__ = [
     "BigSift",
     "BigSiftResult",
     "ddmin",
+    "desql",
+    "DeSql",
+    "QueryStep",
 ]
 
 #: The ``spark.sql.extensions`` entry the Spark 4 binding installs. Kept here so
@@ -92,3 +96,16 @@ def lineage(spark):
         :func:`configure`. The JVM's message explains which and how to fix it.
     """
     return Lineage(spark)
+
+
+def desql(spark):
+    """Step-through SQL debugging for ``spark``.
+
+    Decompose a query into its constituent parts and inspect the intermediate data at
+    each one::
+
+        for step in bigasterisk.desql(spark).decompose(df):
+            print(step)
+            step.data.show()
+    """
+    return DeSql(spark)

@@ -29,6 +29,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname entry Entry points
  * @groupname spi Service provider interface
  * @groupname lineage Data provenance
+ * @groupname desql Step-through SQL debugging
  */
 object BigAsterisk {
 
@@ -131,4 +132,12 @@ object BigAsterisk {
    * @group lineage
    */
   def lineage(spark: SparkSession): LineageSupport = binding(spark).lineage
+
+  /**
+   * Step-through SQL debugging for `spark`: decompose a query and inspect the
+   * intermediate data at each part.
+   *
+   * @group desql
+   */
+  def desql(spark: SparkSession): DeSqlSupport = binding(spark).desql
 }

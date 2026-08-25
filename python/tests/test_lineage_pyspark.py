@@ -28,7 +28,7 @@ spark.sparkContext.setLogLevel("WARN")
 t = bigasterisk.lineage(spark)
 
 base = os.path.dirname(os.path.abspath(__file__))
-sales_dir = os.path.join(base, "..", "..", "src", "test", "resources", "sales_parts")
+sales_dir = os.path.join(base, "..", "..", "modules", "spark4", "src", "test", "resources", "sales_parts")
 spark.read.schema("category STRING, amount INT").csv(sales_dir) \
     .createOrReplaceTempView("sales")
 

@@ -58,7 +58,7 @@ jobs:
         run: sbt -batch package
 
       - name: Scaladoc
-        run: sbt -batch doc
+        run: sbt -batch unidoc
 
       - name: Upload test reports on failure
         if: failure()
@@ -116,6 +116,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -123,6 +133,20 @@ jobs:
       - name: Install MkDocs
         run: pip install mkdocs-material
 
+      # The manual links to api/index.html, so the Scaladoc has to exist before the
+      # strict build can resolve it.
+      - name: Build Scaladoc
+        run: |
+          sbt -batch unidoc
+          rm -rf docs/api
+          cp -r target/scala-2.13/unidoc docs/api
+
       # --strict turns broken internal links and missing nav targets into failures.
       - name: Build site
         run: mkdocs build --strict
+
+      - name: Upload site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site

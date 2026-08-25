@@ -21,7 +21,8 @@ if [ ! -d "$SPARK_HOME" ]; then
   exit 1
 fi
 
-# PySpark 4.1 requires Python 3.9+.
+# PySpark 4.1 needs Python 3.10+: its sql/types.py evaluates PEP 604 unions
+# (`int | None`) at class-body time, which 3.9 cannot parse.
 if [ -z "$PYSPARK_PYTHON" ]; then
   if [ -x "$ROOT/tools/python/bin/python3" ]; then
     PYSPARK_PYTHON="$ROOT/tools/python/bin/python3"
@@ -33,8 +34,8 @@ if [ -z "$PYSPARK_PYTHON" ]; then
   echo "No python3 found. Set PYSPARK_PYTHON to a Python 3.9+ interpreter." >&2
   exit 1
 fi
-if ! "$PYSPARK_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)'; then
-  echo "PySpark 4.1 needs Python 3.9+, but $PYSPARK_PYTHON is $("$PYSPARK_PYTHON" -V 2>&1)." >&2
+if ! "$PYSPARK_PYTHON" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 10) else 1)'; then
+  echo "PySpark 4.1 needs Python 3.10+, but $PYSPARK_PYTHON is $("$PYSPARK_PYTHON" -V 2>&1)." >&2
   echo "Set PYSPARK_PYTHON to a newer interpreter." >&2
   exit 1
 fi
@@ -63,7 +64,7 @@ rm -f "$PYZIP"
 
 submit() {
   echo "=== $(basename "$1")"
-  "$SPARK_HOME/bin/spark-submit" \
+  BIGASTERISK_HOME="$ROOT" "$SPARK_HOME/bin/spark-submit" \
     --master 'local[2]' \
     --jars "$JARS" \
     --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
@@ -73,3 +74,4 @@ submit() {
 
 submit "$ROOT/python/tests/test_lineage_pyspark.py"
 submit "$ROOT/python/tests/test_bigsift_pyspark.py"
+submit "$ROOT/python/tests/test_desql_pyspark.py"
