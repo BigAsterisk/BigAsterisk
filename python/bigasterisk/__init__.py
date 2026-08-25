@@ -39,6 +39,7 @@ from bigasterisk.lineage import Lineage, TraceCursor
 from bigasterisk.bigsift import BigSift, BigSiftResult, ddmin
 from bigasterisk.desql import DeSql, QueryStep
 from bigasterisk.watchpoint import Watchpoint, Watchpoints
+from bigasterisk.vega import Vega, VegaRun
 
 __all__ = [
     "configure",
@@ -55,6 +56,9 @@ __all__ = [
     "watchpoints",
     "Watchpoint",
     "Watchpoints",
+    "vega",
+    "Vega",
+    "VegaRun",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -134,3 +138,16 @@ def watchpoints(spark):
         print(wp.hits, wp.captured)
     """
     return Watchpoints(spark)
+
+
+def vega(spark):
+    """Incremental re-execution for ``spark``.
+
+    Successive revisions of a query start from the deepest point they still share::
+
+        v = bigasterisk.vega(spark)
+        v.run("SELECT cid, amount FROM orders WHERE amount > 100").df.collect()
+        r = v.run("SELECT cid, SUM(amount) FROM orders WHERE amount > 100 GROUP BY cid")
+        print(r.reused)
+    """
+    return Vega(spark)

@@ -46,37 +46,49 @@ class DeSqlEngine extends DeSqlSupport {
           "client does not hold.")
     }
 
-    val steps = mutable.ArrayBuffer.empty[Spark4QueryStep]
-    // Memoize by plan identity: a plan reused in two branches (a self-join) is one step.
-    val seen = mutable.LinkedHashMap.empty[LogicalPlan, Int]
-
-    // `labels` carries the names of folded-away wrappers down to the node that stands
-    // in for them, outermost first. `FROM orders o` on a temp view nests as
-    // SubqueryAlias(o) > View(orders) > SubqueryAlias(orders) > Relation, so the scan
-    // can be reported as "orders AS o" instead of as an anonymous csv relation.
-    def visit(plan: LogicalPlan, labels: List[String]): Int = seen.getOrElseUpdate(plan, {
-      if (DeSqlEngine.isTransparent(plan)) {
-        visit(plan.children.head, labels ++ DeSqlEngine.nameOf(plan))
-      } else {
-        val childIds = plan.children.map(visit(_, Nil))
-        val id = steps.length
-        steps += new Spark4QueryStep(
+    DeSqlEngine.stepNodes(df.queryExecution.analyzed).zipWithIndex.map {
+      case (node, id) =>
+        new Spark4QueryStep(
           id = id,
-          operator = DeSqlEngine.operatorOf(plan),
-          detail = DeSqlEngine.describe(plan, labels),
-          childIds = childIds,
-          plan = plan,
+          operator = node.operator,
+          detail = node.detail,
+          childIds = node.childIndexes,
+          plan = node.plan,
           classic = classic)
-        id
-      }
-    })
-
-    visit(df.queryExecution.analyzed, Nil)
-    steps.toSeq
+    }
   }
 }
 
-private[desql] object DeSqlEngine {
+object DeSqlEngine {
+
+  /** One retained node of a decomposition: the plan, and how to describe it. */
+  case class StepNode(plan: LogicalPlan, operator: String, detail: String, childIndexes: Seq[Int])
+
+  /**
+   * Walks `analyzed` and returns the nodes that become steps, in post-order: every
+   * node appears after the nodes feeding it.
+   *
+   * Shared with Vega, so both tools agree on what counts as a part of a query — a
+   * reusable materialization point is the same thing as an inspectable step.
+   */
+  def stepNodes(analyzed: LogicalPlan): Seq[StepNode] = {
+    val out = scala.collection.mutable.ArrayBuffer.empty[StepNode]
+    val seen = scala.collection.mutable.LinkedHashMap.empty[LogicalPlan, Int]
+
+    def visit(plan: LogicalPlan, labels: List[String]): Int = seen.getOrElseUpdate(plan, {
+      if (isTransparent(plan)) {
+        visit(plan.children.head, labels ++ nameOf(plan))
+      } else {
+        val childIndexes = plan.children.map(visit(_, Nil))
+        out += StepNode(plan, operatorOf(plan), describe(plan, labels), childIndexes)
+        out.length - 1
+      }
+    })
+
+    visit(analyzed, Nil)
+    out.toSeq
+  }
+
 
   /**
    * True for nodes that pass their input through unchanged. Folding these away keeps

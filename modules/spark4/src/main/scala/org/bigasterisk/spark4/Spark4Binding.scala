@@ -4,9 +4,10 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.vega.VegaEngine
 import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor, WatchpointSupport}
+import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor, VegaSupport, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -38,6 +39,8 @@ class Spark4Binding extends SparkBinding {
   override val desql: DeSqlSupport = new DeSqlEngine
 
   override val watchpoints: WatchpointSupport = new Spark4Watchpoints
+
+  override val vega: VegaSupport = new VegaEngine()
 }
 
 object Spark4Binding {

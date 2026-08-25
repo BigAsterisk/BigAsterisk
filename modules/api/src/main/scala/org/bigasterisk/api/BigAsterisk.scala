@@ -32,6 +32,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname lineage Data provenance
  * @groupname desql Step-through SQL debugging
  * @groupname watchpoint Watchpoints
+ * @groupname vega Incremental re-execution
  */
 object BigAsterisk {
 
@@ -162,4 +163,12 @@ object BigAsterisk {
    * @group watchpoint
    */
   def watchpoints(spark: SparkSession): WatchpointSupport = binding(spark).watchpoints
+
+  /**
+   * Incremental re-execution for `spark`: successive revisions of a query start from
+   * the deepest point they still share, rather than from nothing.
+   *
+   * @group vega
+   */
+  def vega(spark: SparkSession): VegaSupport = binding(spark).vega
 }

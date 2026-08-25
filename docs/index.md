@@ -26,6 +26,8 @@ written for.
   the intermediate data at each part.
 - :material-eye-outline: **[BigDebug](bigdebug.md)** — watchpoints on the records
   flowing through a query.
+- :material-refresh-auto: **[Vega](vega.md)** — successive query revisions start from
+  what they share with the last one.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -71,7 +73,7 @@ is wrong.
 | OptDebug | Ranks the operations behind a wrong result | planned |
 | PerfDebug | Attributes computation skew to the records causing it | planned |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
-| Vega | Incremental re-execution across query revisions | planned |
+| [Vega](vega.md) | Incremental re-execution across query revisions | **partial** |
 | BigTest | Symbolic execution over dataflow operators and UDFs | planned |
 | BigFuzz | Fuzzing via framework abstraction | planned |
 | DepFuzz | Co-dependence-aware mutation across joined tables | planned |

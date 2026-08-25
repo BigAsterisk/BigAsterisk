@@ -30,7 +30,7 @@ repositories remain the historical record; they are not modified by this project
 | OptDebug | planned | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | planned | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
-| Vega | **no artifact** | — | — | — | — |
+| Vega | partial (reimplemented) | **no artifact** | — | — | — |
 | BigTest | planned | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
 | BigFuzz | planned | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
 | DepFuzz | planned | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
@@ -143,7 +143,7 @@ Deliberate differences from the upstream implementation:
 - **Correlated subqueries are refused** with a clear error rather than returning rows,
   since their plans carry outer references and cannot execute standalone.
 
-### Vega — no artifact
+### Vega — partial, reimplemented from the paper
 
 No public source survives. The repository referenced by the paper does not exist, and
 none of the 35 branches of `maligulzar/bigdebug` contains a Vega implementation; the
@@ -151,10 +151,29 @@ only remaining traces are two interface stubs in the FlowDebug benchmarks
 (`TestingVega.scala`, `DDNonExhaustiveVega.scala`), which describe the shape of the
 test-oracle API but not the incremental re-execution engine.
 
-Vega will therefore be reimplemented from *Optimizing Interactive Development of
-Data-Intensive Applications* (SoCC 2016), using the paper's own benchmarks and reported
-speedups as the acceptance criterion. Any deviation from the published design will be
-documented here and in the module's own documentation.
+Vega was therefore written from *Optimizing Interactive Development of Data-Intensive
+Applications* (SoCC 2016). The paper describes two optimizations:
+
+| Optimization | Status |
+|---|---|
+| Reuse materialized intermediate results from the previous run of a similar program | **implemented** |
+| Rewrite the dataflow to push code modifications as late as possible, so execution can start from a later materialization point | **not implemented** |
+
+The first is implemented by decomposing a query into its parts (the same decomposition
+DeSQL exposes), materializing the reusable ones, and matching a later revision against
+them on Catalyst's `canonicalized` plan form. That is the same basis Spark's own
+`CacheManager` uses, so materializing a part is sufficient for the optimizer to route a
+later revision through it — no plan substitution is needed.
+
+Without the second optimization, an edit near the sources invalidates everything above
+it, which is precisely the case the paper's rewrite exists to rescue. Expect reuse on
+revisions that extend or change a query near its output, not on ones that change an
+early filter.
+
+**No performance claim is made.** The paper reports up to three orders of magnitude on
+its own benchmarks; this implementation has not been run against them. Doing so requires
+reconstructing the benchmark programs, which are not part of any surviving artifact
+either.
 
 ### BigTest and NaturalSym — planned
 

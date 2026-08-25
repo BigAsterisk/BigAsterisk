@@ -67,7 +67,7 @@ tool's page says which.
 | OptDebug | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | planned |
 | PerfDebug | Attributes computation skew to the records causing it | execution metrics | planned |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
-| Vega | Incremental re-execution across successive query revisions | query history | planned |
+| [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |
 | BigTest | Symbolic execution over dataflow operators and UDFs | application | planned |
 | BigFuzz | Fuzzing via framework abstraction | application | planned |
 | DepFuzz | Co-dependence-aware mutation, so inputs survive joins across tables | input data | planned |
