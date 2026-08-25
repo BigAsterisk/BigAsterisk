@@ -1,0 +1,249 @@
+# BigSift — automated fault isolation
+
+**BigSift** (SoCC '17, FSE '18 demo) finds the *minimal set of input records* that
+reproduce a faulty output of a Spark job. It combines Titian's data provenance with
+**delta debugging**: provenance shrinks the search space from the whole input to just
+the records feeding the faulty outputs, and delta debugging minimizes that to the
+1-minimal fault-inducing records — re-running the job on subsets and re-applying a
+user **test oracle**, with bitmap-memoized test verdicts.
+
+You give it a **job**, a **test oracle** (a predicate marking output records faulty),
+and the **input**; it returns the minimal fault-inducing input records.
+
+## Interactive CLI
+
+`bin/bigasterisk` is a terminal front-end (a CLI take on the FSE '18 web UI): pick a subject
+program and a test-oracle function, and it streams the delta-debugging progression live,
+renders an area chart of records-localized over time (log y, as in the paper), and shows
+the localized records.
+
+```text
+$ bin/bigasterisk airport min            # one-shot: scenario + oracle
+$ bin/bigasterisk                        # interactive menu / REPL
+
+bigsift> run weather max
+▶ Weather analysis — snow delta per month/year
+  t=   0ms  localized  252 records   e.g. 90210,15/12/2015,15mm
+  t= 243ms  localized  126 records   e.g. 60601,16/12/2015,25mm
+  ...
+  records localized (log scale)
+    252 │████████
+     56 │███████████████████████
+      2 │██████████████████████████████████████████████████████
+       └──────────────────────────────────────────────────────
+        0                                              887ms
+        delta-debugging time → (after 5260ms capture+trace)
+  fault-inducing input(s):
+      90210,25/12/2015,90in
+```
+
+Commands: `run <scenario> [oracle]`, `sql …`, `list`, `help`, `quit`. Toggle the oracle
+by choosing a different function (e.g. `min`, `max`, `ksigma`) — the menu lists the ones
+each scenario supports.
+
+The reduction is colored by **source**: the chart and the breakdown separate **Titian
+data provenance** (cyan — the backward trace shrinking the full input to the records
+feeding the faulty output) from **delta debugging** (green — re-running the job on
+subsets down to the 1-minimal set). When the RDD trace under-resolves, BigSift falls
+back to the **local** full input and says so:
+
+```text
+  input             100,000 records
+  Titian provenance 100,000 → 22,629   (backward trace to the records feeding the fault)
+  delta debugging   22,629 → 2         (13 re-runs of the job on subsets)
+```
+
+### Run your own program (SQL, no recompile)
+
+The `sql` command runs BigSift on *your* query over a CSV — nothing to compile:
+
+```bash
+bin/bigasterisk sql sales=data.csv \
+  "SELECT category, SUM(amount) AS total FROM sales GROUP BY category" \
+  "lt 1 0"                         # output column 1 (total) < 0 is faulty
+```
+
+Oracle spec: `lt|gt <outCol> <val>` (threshold on an output column) or
+`min|max|nan <outCol>` (the predefined oracles), `outCol` 0-based. The CSV is read with
+a header; the base table is named by the `table=file` argument and referenced in the
+query. (Same engine as [`BigSiftSQL.debug`](#spark-sql-dataframes) — file-backed source,
+exact provenance.)
+
+For a PySpark job, `bigasterisk.BigSift(spark).debug(table, query, lambda)` is the runtime
+equivalent; for a Scala RDD closure, add a one-line `Scenario` (below) or call
+`BigSift.run` from a small `main`.
+
+The demo datasets are generated on first run (1,000,000 rows each by default; a 1M-row
+job localizes in ~10–15 s). Regenerate at a different scale with
+`python3 examples/data/generate.py <rows>` or `BIGSIFT_ROWS=<n> bin/bigasterisk …`; tune the
+JVM heap with `BIGSIFT_HEAP=8g`. The reduction chart's y-axis is log scale with decade
+gridlines (1, 10, 100, 1k, …), as in the paper's Figure 2c.
+
+### Adding a subject program
+
+A program is one `Scenario` entry in `BigSiftCLI`. Three steps:
+
+1. **Write the job** in the `Jobs` object — a `Lineage[String] => Lineage[T]`
+   transformation (defensive parsing keeps the delta-debugging re-runs clean):
+
+    ```scala
+    def sales(in: Lineage[String]): Lineage[(String, Int)] =
+      in.flatMap { s => try { val t = s.split(","); Iterator((t(0), t(1).toInt)) }
+                        catch { case _: Throwable => Iterator.empty } }
+        .reduceByKey(_ + _)
+    ```
+
+2. **Register a `Scenario`** in the `scenarios` list — key, title, data path, the
+   oracles it supports, the default oracle, and a lambda mapping each oracle to a
+   `BigSift.run` / `runWithOracle` call:
+
+    ```scala
+    Scenario("sales", "Sales totals per category", "examples/data/sales.csv",
+      Seq("negative" -> "total < 0 (default)", "min" -> "explain the minimum"),
+      "negative",
+      (oracle, lc, on) => {
+        val in = lc.textFile("examples/data/sales.csv", 4); val bs = new BigSift(lc)
+        type O = (String, Int)
+        res(oracle match {
+          case "min" => bs.runWithOracle[O](in, Jobs.sales, TestOracle.min(_._2.toDouble), on)
+          case _     => bs.run[O](in, Jobs.sales, _._2 < 0, on)
+        })
+      })
+    ```
+
+3. **(Optional) add data** to `examples/data/generate.py` so it scales with the others.
+
+That's it — `bin/bigasterisk sales` (or `run sales` in the REPL) now works, with the live
+chart and oracle toggling for free. The same `Jobs.sales` + oracle also drive
+`BigSift.run` directly in application code, or `BigSiftSQL.debug` if you express the job
+as SQL.
+
+```
+input + job + test  ──►  run with capture  ──►  faulty outputs (per test)
+                                │
+                         backward provenance (Titian)
+                                │
+                     candidate fault-inducing inputs
+                                │
+                         delta debugging (ddmin):
+                     re-run job on subsets, re-test, memoize
+                                │
+                                ▼
+                  1-minimal fault-inducing input records
+```
+
+## Spark SQL / DataFrames
+
+`BigSiftSQL.debug` isolates the minimal rows of a file-backed base table. It reuses the
+same provenance-trace-and-restrict machinery as the TPC-DS re-execution oracle, so the
+provenance step is exact.
+
+```scala
+import org.apache.spark.sql.bigsift.BigSiftSQL
+
+spark.read.parquet(salesPath).createOrReplaceTempView("sales")   // file-backed
+val result = BigSiftSQL.debug(spark, "sales",
+  "SELECT category, SUM(amount) AS total FROM sales GROUP BY category",
+  (r: Row) => r.getLong(1) < 0)                  // faulty = negative total
+
+result.faultInducingRows.foreach(println)         // the corrupt sales row(s)
+result.provenanceSize                             // candidates before ddmin
+```
+
+## PySpark
+
+```python
+import bigasterisk
+
+spark.read.csv(path, schema="category STRING, amount INT").createOrReplaceTempView("sales")
+result = bigasterisk.BigSift(spark).debug(
+    "sales",
+    "SELECT category, SUM(amount) AS total FROM sales GROUP BY category",
+    lambda r: r["total"] < 0)
+print(result.fault_inducing_rows)                 # the corrupt row(s)
+```
+
+Ship the `bigasterisk` package as a zip (`--py-files bigasterisk.zip`); see
+[Getting started](install.md#use-it-in-an-application).
+
+## Scala RDD
+
+Matches the original FSE '18 API (`runWithBigSift`). The job is a transformation of the
+input; the test is a predicate on output records.
+
+```scala
+import org.apache.spark.bigsift.{BigSift, TestOracle}
+
+val lc = new LineageContext(sc)
+val result = new BigSift(lc).run(
+  lc.textFile("transit.csv"),
+  in => in.map(parseToKV).filter(_._2 < 45).reduceByKey(_ + _),
+  (out: ((String, String), Int)) => out._2 < 0)   // faulty = negative total
+result.faultInducingInputs.foreach(println)         // the culprit line(s)
+```
+
+## Predefined test oracles
+
+The UI's built-in oracles (Scala `TestOracle`) build a fixed faulty predicate from the
+*original* output — minimum, maximum, k-sigma-from-median, NaN/Null:
+
+```scala
+new BigSift(lc).runWithOracle(input, job,
+  TestOracle.min[((String, String), Int)](_._2.toDouble))   // explain the minimum
+```
+
+## How a subset is judged "faulty"
+
+The delta-debugging test re-runs the job with the input restricted to the candidate
+subset and applies the oracle to the output: if any output row is still faulty, the
+subset reproduces the failure. Distribution oracles (k-sigma, min/max) fix their
+threshold from the original full output so the predicate stays stable across re-runs.
+
+## Verified against the paper
+
+`BigSiftVerificationSuite` reproduces the FSE '18 airport program (Figure 5) and
+exercises every predefined oracle, each isolating the exact fault-inducing record with
+necessity + sufficiency checks (the cause alone reproduces the fault; the input minus
+the cause does not):
+
+| example | oracle | result |
+|---|---|---|
+| airport layover (Figure 5) | custom predicate (`total < 0`) | the midnight-crossing transit row |
+| airport layover | minimum-output | same row |
+| airport layover | k-sigma-from-median | same row |
+| max-per-key | maximum-output | the anomalous record |
+| ratio-per-key (0/0) | NaN/Null | the divide-by-zero record |
+| sum-per-key (two records cancel) | custom (`== 0`) | both records, 1-minimal |
+
+The **SoCC '17 subject programs** from the original BigSift evaluation
+([maligulzar/BigSiftUI](https://github.com/maligulzar/BigSiftUI)) are reproduced
+faithfully — same pipeline and the same `failure` oracle — in `SoccBenchmarksSuite`:
+
+| benchmark | pipeline | fault oracle | isolated |
+|---|---|---|---|
+| Airport Transit | layover time per airport-hour, transits < 45 min | `total < 0` | midnight-crossing transit |
+| Weather Analysis | per month/year, `max snow − min snow` | `delta > 6000 mm` | the anomalous snow reading |
+| Student Info | moving-average age per grade | `grade > 3 ∨ avg ∉ [18,25]` | the corrupt age |
+
+(AirQuality is an empty stub and WordCount carries no fault oracle in the original
+repo, so neither defines a debugging scenario.)
+
+## Notes & limitations
+
+- **SQL/PySpark** require the base table to be a **file source** (Parquet/CSV) so
+  Titian captures its provenance; in-memory `LocalRelation` views are not captured.
+  The query's referenced columns must appear in the traced witnesses (the common
+  single-base-table case).
+- **RDD** jobs should read their input from a **file** (`lc.textFile`), as in the
+  paper (`sc.textFile(dataset)`); tracing a job whose source is `lc.parallelize` hits
+  a Titian replay-path edge case on shallow DAGs.
+- **RDD** provenance pre-shrink is **best-effort**: the trace is validated by
+  re-running, and falls back to the full input if it under-resolves — so the isolated
+  culprit is always correct, but the candidate set may not always be pre-shrunk.
+- Of the paper's three systems optimizations, **bitmap-based test memoization** is
+  implemented; **test-predicate pushdown** and **overlapping-trace prioritization**
+  (performance optimizations, not correctness) are not yet ported.
+- Delta debugging re-runs the job many times; cost scales with the candidate-set size,
+  which is why the provenance pre-shrink matters. Test verdicts are memoized so no
+  subset is re-tested.
+- BigSift builds on the same coverage and fail-loud guarantees as Titian SQL capture.

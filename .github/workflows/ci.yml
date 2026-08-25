@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SPARK_VERSION: 4.1.2
+  SPARK_DIST: spark-4.1.2-bin-hadoop3
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      # The local-cluster suites launch real executor JVMs through Spark's launcher,
+      # which needs a Spark binary distribution on disk. Cached across runs.
+      - name: Cache Spark distribution
+        id: spark-cache
+        uses: actions/cache@v4
+        with:
+          path: tools/${{ env.SPARK_DIST }}
+          key: ${{ runner.os }}-${{ env.SPARK_DIST }}
+
+      - name: Download Spark distribution
+        if: steps.spark-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tools
+          curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/${SPARK_DIST}.tgz" \
+            | tar xz -C tools
+
+      - name: Compile
+        run: sbt -batch compile Test/compile
+
+      - name: Test
+        run: sbt -batch test
+
+      - name: Package
+        run: sbt -batch package
+
+      - name: Scaladoc
+        run: sbt -batch doc
+
+      - name: Upload test reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: '**/target/test-reports/**'
+          if-no-files-found: ignore
+
+  pyspark:
+    name: PySpark end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache Spark distribution
+        id: spark-cache
+        uses: actions/cache@v4
+        with:
+          path: tools/${{ env.SPARK_DIST }}
+          key: ${{ runner.os }}-${{ env.SPARK_DIST }}
+
+      - name: Download Spark distribution
+        if: steps.spark-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p tools
+          curl -fsSL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/${SPARK_DIST}.tgz" \
+            | tar xz -C tools
+
+      - name: Package jars
+        run: sbt -batch package
+
+      - name: Run PySpark tests
+        run: python/tests/run.sh
+
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install MkDocs
+        run: pip install mkdocs-material
+
+      # --strict turns broken internal links and missing nav targets into failures.
+      - name: Build site
+        run: mkdocs build --strict

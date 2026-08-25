@@ -1,0 +1,15 @@
+#!/bin/sh
+# sbt wrapper pinned to the project-local JDK 17 and sbt distribution, so builds do
+# not depend on whatever JDK happens to be on the host PATH.
+# Run bin/bootstrap first to populate tools/.
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+JDK="$(ls -d "$ROOT"/tools/jdk-17* 2>/dev/null | head -1)"
+if [ -z "$JDK" ]; then
+  echo "No JDK 17 in tools/. Run bin/bootstrap first." >&2
+  exit 1
+fi
+if [ -d "$JDK/Contents/Home" ]; then JAVA_HOME="$JDK/Contents/Home"; else JAVA_HOME="$JDK"; fi
+export JAVA_HOME
+export PATH="$JAVA_HOME/bin:$PATH"
+exec "$ROOT/tools/sbt/bin/sbt" "$@"

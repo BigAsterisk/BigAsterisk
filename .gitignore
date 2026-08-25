@@ -1,0 +1,27 @@
+# Build output
+target/
+project/target/
+project/project/
+.bsp/
+
+# Project-local toolchain, fetched by bin/bootstrap
+tools/
+
+# Generated example data and harness output
+examples/data/*.csv
+examples/data/*.txt
+tpcds/data/
+*.classpath
+
+# Docs build
+site/
+
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store

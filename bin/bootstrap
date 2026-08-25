@@ -1,0 +1,78 @@
+#!/bin/sh
+# Fetches the project-local toolchain into tools/ so builds do not depend on the
+# host's JDK, sbt or Spark installation. Safe to re-run: anything already present
+# is left alone.
+#
+#   bin/bootstrap              # JDK 17 + sbt + Spark distribution
+#   bin/bootstrap --no-spark   # skip the Spark distribution (~400 MB)
+#
+# Nothing is installed outside this repository.
+set -e
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TOOLS="$ROOT/tools"
+JDK_VERSION=17
+SBT_VERSION=1.10.7
+SPARK_VERSION=4.1.2
+HADOOP_PROFILE=hadoop3
+
+WANT_SPARK=1
+[ "$1" = "--no-spark" ] && WANT_SPARK=0
+
+mkdir -p "$TOOLS"
+
+case "$(uname -s)" in
+  Darwin) OS=mac ;;
+  Linux)  OS=linux ;;
+  *) echo "Unsupported OS: $(uname -s). Install JDK $JDK_VERSION and sbt $SBT_VERSION manually." >&2; exit 1 ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) ARCH=x64 ;;
+  arm64|aarch64) ARCH=aarch64 ;;
+  *) echo "Unsupported architecture: $(uname -m)." >&2; exit 1 ;;
+esac
+
+# ---- JDK 17 -----------------------------------------------------------------
+if [ -n "$(ls -d "$TOOLS"/jdk-17* 2>/dev/null)" ]; then
+  echo "JDK $JDK_VERSION: already present"
+else
+  echo "JDK $JDK_VERSION: downloading ($OS/$ARCH)..."
+  curl -fsSL -o "$TOOLS/jdk.tar.gz" \
+    "https://api.adoptium.net/v3/binary/latest/${JDK_VERSION}/ga/${OS}/${ARCH}/jdk/hotspot/normal/eclipse"
+  tar xzf "$TOOLS/jdk.tar.gz" -C "$TOOLS"
+  rm -f "$TOOLS/jdk.tar.gz"
+  echo "JDK $JDK_VERSION: installed"
+fi
+
+# ---- sbt --------------------------------------------------------------------
+if [ -x "$TOOLS/sbt/bin/sbt" ]; then
+  echo "sbt $SBT_VERSION: already present"
+else
+  echo "sbt $SBT_VERSION: downloading..."
+  curl -fsSL -o "$TOOLS/sbt.tgz" \
+    "https://github.com/sbt/sbt/releases/download/v${SBT_VERSION}/sbt-${SBT_VERSION}.tgz"
+  tar xzf "$TOOLS/sbt.tgz" -C "$TOOLS"
+  rm -f "$TOOLS/sbt.tgz"
+  echo "sbt $SBT_VERSION: installed"
+fi
+
+# ---- Spark distribution -----------------------------------------------------
+# Needed by the local-cluster test suites, which launch real executor JVMs through
+# Spark's launcher, and by the PySpark tests.
+SPARK_DIR="$TOOLS/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}"
+if [ "$WANT_SPARK" = "0" ]; then
+  echo "Spark $SPARK_VERSION: skipped (--no-spark); local-cluster and PySpark tests will not run"
+elif [ -d "$SPARK_DIR" ]; then
+  echo "Spark $SPARK_VERSION: already present"
+else
+  echo "Spark $SPARK_VERSION: downloading (~400 MB)..."
+  curl -fsSL -o "$TOOLS/spark.tgz" \
+    "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz"
+  tar xzf "$TOOLS/spark.tgz" -C "$TOOLS"
+  rm -f "$TOOLS/spark.tgz"
+  echo "Spark $SPARK_VERSION: installed"
+fi
+
+echo
+echo "Toolchain ready in tools/. Next:"
+echo "    bin/sbt test"
