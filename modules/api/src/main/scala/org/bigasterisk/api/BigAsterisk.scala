@@ -33,6 +33,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname desql Step-through SQL debugging
  * @groupname watchpoint Watchpoints
  * @groupname vega Incremental re-execution
+ * @groupname perfdebug Performance debugging
  */
 object BigAsterisk {
 
@@ -171,4 +172,12 @@ object BigAsterisk {
    * @group vega
    */
   def vega(spark: SparkSession): VegaSupport = binding(spark).vega
+
+  /**
+   * Computation-skew profiling for `spark`: which records cost abnormally much to
+   * process.
+   *
+   * @group perfdebug
+   */
+  def perfdebug(spark: SparkSession): PerfDebugSupport = binding(spark).perfdebug
 }

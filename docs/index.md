@@ -30,6 +30,8 @@ written for.
   what they share with the last one.
 - :material-target: **[OptDebug](optdebug.md)** — which operation of a query is at
   fault, not just which records.
+- :material-speedometer: **[PerfDebug](perfdebug.md)** — which records cost
+  abnormally much to process.
 - :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
 - :material-book-open-variant: **[Command & flag reference](reference.md)** — every
   task, script, config flag and env var.
@@ -73,7 +75,7 @@ is wrong.
 | [BigDebug](bigdebug.md) | On-demand watchpoints over distributed intermediate data | **partial** |
 | FlowDebug | Influence-based provenance, taint inside UDFs | planned |
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
-| PerfDebug | Attributes computation skew to the records causing it | planned |
+| [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | [Vega](vega.md) | Incremental re-execution across query revisions | **partial** |
 | BigTest | Symbolic execution over dataflow operators and UDFs | planned |

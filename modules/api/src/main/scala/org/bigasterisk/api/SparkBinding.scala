@@ -55,6 +55,9 @@ trait SparkBinding {
   /** Incremental re-execution across query revisions for this Spark version. */
   def vega: VegaSupport
 
+  /** Computation-skew profiling for this Spark version. */
+  def perfdebug: PerfDebugSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

@@ -14,6 +14,7 @@ class BindingSelectionSuite extends AnyFunSuite with Matchers {
     def desql: DeSqlSupport = throw new UnsupportedOperationException
     def watchpoints: WatchpointSupport = throw new UnsupportedOperationException
     def vega: VegaSupport = throw new UnsupportedOperationException
+    def perfdebug: PerfDebugSupport = throw new UnsupportedOperationException
     def validate(spark: SparkSession): Unit = ()
   }
 

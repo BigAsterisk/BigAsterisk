@@ -4,10 +4,11 @@ import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.perfdebug.PerfDebugEngine
 import org.apache.spark.sql.vega.VegaEngine
 import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{DeSqlSupport, LineageSupport, SparkBinding, TraceCursor, VegaSupport, WatchpointSupport}
+import org.bigasterisk.api.{DeSqlSupport, LineageSupport, PerfDebugSupport, SparkBinding, TraceCursor, VegaSupport, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -41,6 +42,8 @@ class Spark4Binding extends SparkBinding {
   override val watchpoints: WatchpointSupport = new Spark4Watchpoints
 
   override val vega: VegaSupport = new VegaEngine()
+
+  override val perfdebug: PerfDebugSupport = new PerfDebugEngine
 }
 
 object Spark4Binding {
@@ -53,7 +56,8 @@ object Spark4Binding {
    */
   val extensionClassNames: Seq[String] = Seq(
     classOf[org.apache.spark.sql.lineage.TitianSQLExtension].getName,
-    classOf[org.apache.spark.sql.watchpoint.WatchpointExtension].getName)
+    classOf[org.apache.spark.sql.watchpoint.WatchpointExtension].getName,
+    classOf[org.apache.spark.sql.perfdebug.PerfDebugExtension].getName)
 
   /** The lineage extension, kept as a named constant for diagnostics and docs. */
   val extensionClassName: String = extensionClassNames.head

@@ -41,6 +41,7 @@ from bigasterisk.desql import DeSql, QueryStep
 from bigasterisk.watchpoint import Watchpoint, Watchpoints
 from bigasterisk.vega import Vega, VegaRun
 from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
+from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
 
 __all__ = [
     "configure",
@@ -64,6 +65,10 @@ __all__ = [
     "OptDebug",
     "OptDebugResult",
     "SuspiciousOperation",
+    "perfdebug",
+    "PerfDebug",
+    "PerfProfile",
+    "RecordCost",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -73,6 +78,7 @@ __all__ = [
 _SPARK4_EXTENSIONS = (
     "org.apache.spark.sql.lineage.TitianSQLExtension",
     "org.apache.spark.sql.watchpoint.WatchpointExtension",
+    "org.apache.spark.sql.perfdebug.PerfDebugExtension",
 )
 
 
@@ -167,3 +173,15 @@ def optdebug(spark):
         print(result.prime)
     """
     return OptDebug(spark)
+
+
+def perfdebug(spark):
+    """Computation-skew profiling for ``spark``.
+
+    Find the records that cost abnormally much to process::
+
+        profile = bigasterisk.perfdebug(spark).profile(orders, top_k=10)
+        profile.df.collect()
+        print(profile.skew, profile.slowest[0])
+    """
+    return PerfDebug(spark)

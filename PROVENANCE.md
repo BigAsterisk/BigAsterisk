@@ -28,7 +28,7 @@ repositories remain the historical record; they are not modified by this project
 | BigDebug | partial (watchpoints) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
 | FlowDebug | planned | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
-| PerfDebug | planned | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
+| PerfDebug | partial (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | partial (reimplemented) | **no artifact** | — | — | — |
 | BigTest | planned | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
@@ -144,12 +144,39 @@ Deliberate differences from the upstream implementation:
   another. Matching uses the source columns both sides expose, which means genuinely
   duplicated source rows conflate.
 
-### PerfDebug — planned
+### PerfDebug — partial, reimplemented for SQL
 
-Builds on the same lineage capture as Titian, adding per-record latency propagation.
-The upstream artifact stores lineage in Apache Ignite; the migration will target the
-capture engine already in `modules/spark4` instead, which removes the external
-dependency.
+The upstream artifact propagates a latency value alongside every record through the
+forked Spark's lineage machinery (`lineage/perfdebug/perftrace`, `PerfTraceCalculator`)
+and stores the results in **Apache Ignite** (`lineage/perfdebug/ignite`). Both were
+consequences of needing to carry per-record state across stage boundaries in a Spark of
+that era, and neither survives here: the timing is taken inside Spark's generated code
+and travels back by `AccumulatorV2`, with no external store.
+
+What is implemented is **per-record cost at a profiling point you choose**: the clock is
+read once per record inside the generated loop, and the interval between consecutive
+records is the work the upstream pipeline did for the later one. Totals are exact; only
+the `topK` most expensive records are materialised.
+
+Deliberate differences from the upstream implementation:
+
+- **Measured at a point, not propagated through the pipeline.** The original computes a
+  latency for every record at every stage and traces the total back to the inputs. Here
+  you place a profiling point and get the cost of the pipeline below it. This is a
+  smaller claim, and it is the part that does not need a fork.
+- **No Ignite, no external store.** Retained records live in the accumulator.
+- **Record-level attribution stops at a batched operator.** A Python or Arrow UDF
+  computes a whole batch in one call to another process, so the batch's cost cannot be
+  pinned to the record that caused it. `PerfProfile.recordLevel` reports this at runtime
+  rather than leaving the caller to infer it; totals can also understate in that case,
+  because the batch's cost falls in the interval before a task's first record, which is
+  never retained.
+
+Two implementation details were found by testing rather than assumed, and both are
+pinned by the suite: upstream expressions must be forced before the clock is read (Spark
+emits an input variable's code at its first use, so a costly UDF would otherwise be
+charged to the *next* record), and the first record of each task must be excluded (its
+interval spans pipeline start-up).
 
 ### DeSQL — integrated, reimplemented
 
