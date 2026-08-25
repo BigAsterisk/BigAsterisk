@@ -49,7 +49,7 @@ passed in — Vega changes how much work a query does, never what it returns.
 
 ## How reuse is decided
 
-A query decomposes into parts, the same ones [DeSQL](desql.md) exposes as steps. Each
+A query decomposes into parts, one per node of its plan. Each
 part's plan is a complete sub-query, so its result can be materialized and handed to a
 later revision that still contains it.
 

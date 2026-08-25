@@ -77,9 +77,8 @@ mode on, this is what finds an integer overflow in `amount + amount`.
 
 ## Coverage and guidance
 
-The coverage targets are the query's **branches** — the same ones
-[DeSQL](desql.md) exposes for a step, and [OptDebug](optdebug.md) scores: a `Filter`
-condition and its negation, each arm of a `CASE WHEN`.
+The coverage targets are the query's **branches**: a `Filter` condition and its
+negation, each arm of a `CASE WHEN`.
 
 An input that reaches a branch nothing had reached is kept in the corpus and mutated
 further, which is what makes a campaign a search rather than a sampler. So is an input
@@ -99,8 +98,7 @@ A campaign is reproducible: same `seed`, same result.
   magnitude slower per iteration than the paper's. What is reproduced is the mutation
   and guidance, not the framework abstraction.
 - **Failures are exceptions, not oracles.** A campaign finds inputs that make the query
-  *throw*. It does not check that a query returns the right answer; pair it with
-  [BigSift](bigsift.md) or [OptDebug](optdebug.md) once you have a suspicious result.
+  *throw*. It does not check that a query returns the right answer.
 - **Co-dependence is matched by column name.** A join between `orders.cid` and
   `customers.cid` pools both, which is right. Two unrelated columns that happen to share
   a name and appear in some join condition would also pool, which is conservative rather

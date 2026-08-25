@@ -96,7 +96,7 @@ __all__ = [
 #: ``spark.sql.extensions`` while building the session, so it cannot be set afterwards.
 _SPARK4_EXTENSIONS = (
     "org.apache.spark.sql.lineage.TitianSQLExtension",
-    "org.apache.spark.sql.watchpoint.WatchpointExtension",
+    "org.apache.spark.sql.bigdebug.BigDebugExtension",
     "org.apache.spark.sql.perfdebug.PerfDebugExtension",
 )
 

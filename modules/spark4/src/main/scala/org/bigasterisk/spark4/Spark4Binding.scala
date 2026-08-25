@@ -68,7 +68,7 @@ object Spark4Binding {
    */
   val extensionClassNames: Seq[String] = Seq(
     classOf[org.apache.spark.sql.lineage.TitianSQLExtension].getName,
-    classOf[org.apache.spark.sql.watchpoint.WatchpointExtension].getName,
+    classOf[org.apache.spark.sql.bigdebug.BigDebugExtension].getName,
     classOf[org.apache.spark.sql.perfdebug.PerfDebugExtension].getName)
 
   /** The lineage extension, kept as a named constant for diagnostics and docs. */

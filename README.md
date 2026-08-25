@@ -100,18 +100,23 @@ planted fault and lets each tool answer a different question about it:
 ```
 ── FlowDebug — which of them actually mattered
   0.9936  [o8,c2,99999]  (contribution 99.4% of the total magnitude)
-── OptDebug — which operation is at fault
+── BigSift — which input records are to blame (data-space)
+  provenance left 4 candidate records; delta debugging narrowed them to 1
+    [o8,c2,99999]
+── OptDebug — which operation is to blame (code-space)
   1.000  [1] Aggregate branch — (amount > 1000)  (failing=1, passing=0)
 ── BigDebug — which record killed the query
   partition 0, record 7: [o8,c2,99999]
 ```
+
+Each tool answers one question about the failure, in its own terms.
 
 To use BigAsterisk from your own application:
 
 ```bash
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar \
-  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.watchpoint.WatchpointExtension \
+  --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.bigdebug.BigDebugExtension \
   your-app.jar
 ```
 

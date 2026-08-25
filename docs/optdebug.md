@@ -9,6 +9,9 @@ look at.
 From *OptDebug: Fault-Inducing Operation Isolation for Dataflow Applications*
 (SoCC 2021).
 
+OptDebug isolates the fault in the **code**: which operation is responsible. It does not
+report which input records are to blame.
+
 ## Using it
 
 ```scala
@@ -125,6 +128,6 @@ narrowing, and the right one with it.
 
 `modules/optdebug` reaches Spark only through `bigasterisk-api`. The scoring is
 arithmetic, the provenance arrives through the binding, and delta debugging is a pure
-algorithm shared with [BigSift](bigsift.md) (`org.bigasterisk.api.DeltaDebug`) — so the
-module carries no dependency on a Spark version. That is the shape any
-version-independent tool in this repository should take.
+algorithm in the shared API (`org.bigasterisk.api.DeltaDebug`) — so the module carries no
+dependency on a Spark version. That is the shape any version-independent tool in this
+repository should take.

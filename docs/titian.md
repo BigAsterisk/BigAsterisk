@@ -5,9 +5,7 @@ then interactively trace any output record **backward** to the exact input recor
 that produced it — through shuffles, aggregations, and joins — and **forward** from
 any input record to everything it influenced.
 
-Titian is the provenance engine the rest of the platform builds on: BigSift uses it to
-narrow a failure to its input records, and PerfDebug and OptDebug extend the same
-capture with latency and operation-level taint.
+Titian is the provenance engine the rest of the platform builds on.
 
 It continues two 2016 research systems:
 
@@ -20,27 +18,6 @@ The original implementation forked Spark 1.2/2.1. This is a ground-up migration 
 **attach-as-a-library** for stock **Apache Spark 4.1.x** (Scala 2.13, JDK 17+) — no
 forked Spark, no patched jars — extended with native **Spark SQL / DataFrame**
 provenance that did not exist in the original.
-
-## Where to go
-
-<div class="grid cards" markdown>
-
-- :material-rocket-launch: **[Usage](usage.md)** — SQL, RDD, and PySpark quick starts.
-- :material-bug-check: **[BigSift](bigsift.md)** — automated isolation of the minimal
-  fault-inducing input records (provenance + delta debugging).
-- :material-cog: **[Getting started](install.md)** — build, test, deploy, notebooks.
-- :material-book-open-variant: **[Command & flag reference](reference.md)** — every
-  task, script, config flag, and env var.
-- :material-tune: **[Ablation & performance](ablation.md)** — the tuning flags and the
-  optimization study.
-- :material-table-check: **[TPC-DS coverage](tpcds.md)** — the coverage harness and
-  re-execution oracle.
-- :material-hammer-wrench: **[Developer guide](developer-guide.md)** — architecture
-  and how to extend capture.
-- :material-api: **[API reference (Scaladoc)](api/index.html)** — class- and
-  method-level docs.
-
-</div>
 
 ## Highlights
 

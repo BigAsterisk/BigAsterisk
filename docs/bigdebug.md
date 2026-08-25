@@ -128,10 +128,10 @@ stage processes one record at a time.
     failed. Guarding *above* the UDF does not help: the guard would never see the
     failing batch at all.
 
-    Unlike [PerfDebug](perfdebug.md), this cannot be detected and reported — a profile
-    is compromised by a batched operator *below* it, which is in the plan it holds; a
-    guard is compromised by one *above* it, which is whatever you go on to build.
-    Express the failing computation in SQL when you need the record named.
+    This cannot be detected and reported, either: the guard is compromised by an
+    operator *above* it, which is whatever you go on to build and is not knowable from
+    the guard itself. Express the failing computation in SQL when you need the record
+    named.
 
 ## The other BigDebug primitives
 
@@ -143,7 +143,7 @@ others were built on machinery that only exists in a forked Spark:
 |---|---|---|
 | On-demand watchpoints | **implemented** | guard as a Catalyst expression, matches via accumulator |
 | Crash culprit determination | **implemented** | a plan operator remembers the record in flight; an accumulator registered to survive task failure carries it back |
-| Fine-grained latency alerts | **implemented**, as [PerfDebug](perfdebug.md) | per-record cost at a chosen point |
+| Fine-grained latency alerts | covered elsewhere in the platform | per-record cost at a chosen point |
 | Simulated breakpoints | not yet | the original pauses tasks through a forked executor backend (`BDExecutorBackend`/`BDDriverBackend`) that intercepts task execution. Pausing a live task and resuming it needs a driver-executor channel that stock Spark does not offer |
 
 Breakpoints are tracked as re-architecture rather than as a port: reproducing them

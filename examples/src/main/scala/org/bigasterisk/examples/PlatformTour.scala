@@ -6,6 +6,8 @@ import org.apache.spark.sql.{Row, SparkSession}
 import org.apache.spark.sql.functions.col
 
 import org.bigasterisk.api._
+import org.apache.spark.sql.bigsift.BigSiftSQL
+
 import org.bigasterisk.optdebug.OptDebug
 
 /**
@@ -17,8 +19,9 @@ import org.bigasterisk.optdebug.OptDebug
  * questions about the same failure:
  *
  *   - which records produced this wrong answer                (Titian)
- *   - which of them actually caused it                        (BigSift, FlowDebug)
- *   - which part of the query is at fault                     (OptDebug, DeSQL)
+ *   - which of them actually mattered                         (FlowDebug)
+ *   - the minimal input that still reproduces it              (BigSift, in the data)
+ *   - which operation mishandled it                           (OptDebug, in the code)
  *   - which record was in flight when it crashed              (BigDebug)
  *   - which record cost too much                              (PerfDebug)
  *   - what else would break it                                (fuzzing, test generation)
@@ -96,15 +99,18 @@ object PlatformTour {
         .foreach(i => println(s"  $i"))
     }
 
-    section("OptDebug — which operation is at fault") {
-      OptDebug.localize(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
-        .ranked.take(3).foreach(op => println(s"  $op"))
+    section("BigSift — which input records are to blame (data-space)") {
+      val result = BigSiftSQL.debug(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
+      println(s"  provenance left ${result.provenanceSize} candidate records; " +
+        s"delta debugging narrowed them to ${result.faultInducingRows.size}")
+      result.faultInducingRows.foreach(r => println(s"    $r"))
     }
 
-    section("BigSift — the minimal input that reproduces it") {
-      val result = OptDebug.localize(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
-      println(s"  provenance gave ${result.minimisedFrom.getOrElse(0L)} records; " +
-        s"delta debugging narrowed them to ${result.failingWitnesses}")
+    section("OptDebug — which operation is to blame (code-space)") {
+      // Fault isolation in the code: which operation is responsible, as opposed to
+      // which input records are.
+      OptDebug.localize(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
+        .ranked.take(3).foreach(op => println(s"  $op"))
     }
 
     section("BigDebug — a watchpoint on the records flowing past") {

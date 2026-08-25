@@ -83,10 +83,8 @@ user-defined functions, achieved by rewriting the user's program to carry custom
 abstractions. That has no counterpart here: a SQL query is not a Scala program to
 rewrite, and a Python UDF is opaque to the JVM.
 
-The nearest thing this repository offers is [OptDebug](optdebug.md), which scores the
-conditional branches of a SQL plan — `Filter` conditions, arms of a `CASE WHEN` — and so
-distinguishes records by which path they took through the query's own expressions,
-though not inside a UDF.
+FlowDebug therefore ranks by influence over an aggregation's inputs, and does not
+attempt to track control flow inside a user-defined function.
 
 ## Limitations
 

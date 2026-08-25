@@ -1,9 +1,8 @@
 # BigTest and NaturalSym — generating tests from the query itself
 
-[Fuzzing](fuzzing.md) searches for inputs by mutating what it already has. Symbolic test
-generation works the other way round: it reads the query's own conditions, solves them,
-and constructs one input per path through them. Where a fuzzer eventually stumbles onto
-a branch, this builds a record that takes it.
+Symbolic test generation reads a query's own conditions, solves them, and constructs one
+input per path through them. Rather than searching for an input that happens to reach a
+branch, it builds a record that takes it.
 
 - **BigTest** — *White-Box Testing of Big Data Analytics with Complex User-Defined
   Functions* (ESEC/FSE 2019)
@@ -107,8 +106,7 @@ than hidden.
   user-supplied distributions (`scipy.binom(100, 0.1)`) and samples from them. Here a
   natural witness is one drawn from the seed data.
 - **Single-table constraints.** A constraint relating columns of two tables — a join
-  condition — is not solved for; generate inputs for a join with the
-  [co-dependent fuzzer](fuzzing.md) instead.
+  condition — is not solved for.
 - **Spark Connect.** Branch conditions are read from the driver-side analyzed plan,
   which a Connect client does not hold. Classic sessions only.
 

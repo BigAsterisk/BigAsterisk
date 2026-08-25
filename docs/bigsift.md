@@ -1,7 +1,7 @@
 # BigSift — automated fault isolation
 
 **BigSift** (SoCC '17, FSE '18 demo) finds the *minimal set of input records* that
-reproduce a faulty output of a Spark job. It combines Titian's data provenance with
+reproduce a faulty output of a Spark job. It combines data provenance with
 **delta debugging**: provenance shrinks the search space from the whole input to just
 the records feeding the faulty outputs, and delta debugging minimizes that to the
 1-minimal fault-inducing records — re-running the job on subsets and re-applying a
@@ -9,6 +9,9 @@ user **test oracle**, with bitmap-memoized test verdicts.
 
 You give it a **job**, a **test oracle** (a predicate marking output records faulty),
 and the **input**; it returns the minimal fault-inducing input records.
+
+BigSift isolates the fault in the **data**: which input records are to blame. It does
+not say which part of the program mishandled them.
 
 ## Interactive CLI
 
@@ -41,7 +44,7 @@ Commands: `run <scenario> [oracle]`, `sql …`, `list`, `help`, `quit`. Toggle t
 by choosing a different function (e.g. `min`, `max`, `ksigma`) — the menu lists the ones
 each scenario supports.
 
-The reduction is colored by **source**: the chart and the breakdown separate **Titian
+The reduction is colored by **source**: the chart and the breakdown separate **provenance
 data provenance** (cyan — the backward trace shrinking the full input to the records
 feeding the faulty output) from **delta debugging** (green — re-running the job on
 subsets down to the 1-minimal set). When the RDD trace under-resolves, BigSift falls
@@ -49,7 +52,7 @@ back to the **local** full input and says so:
 
 ```text
   input             100,000 records
-  Titian provenance 100,000 → 22,629   (backward trace to the records feeding the fault)
+  provenance        100,000 → 22,629   (backward trace to the records feeding the fault)
   delta debugging   22,629 → 2         (13 re-runs of the job on subsets)
 ```
 
@@ -121,7 +124,7 @@ as SQL.
 ```
 input + job + test  ──►  run with capture  ──►  faulty outputs (per test)
                                 │
-                         backward provenance (Titian)
+                         backward provenance
                                 │
                      candidate fault-inducing inputs
                                 │
@@ -231,12 +234,12 @@ repo, so neither defines a debugging scenario.)
 ## Notes & limitations
 
 - **SQL/PySpark** require the base table to be a **file source** (Parquet/CSV) so
-  Titian captures its provenance; in-memory `LocalRelation` views are not captured.
+  provenance is captured for it; in-memory `LocalRelation` views are not captured.
   The query's referenced columns must appear in the traced witnesses (the common
   single-base-table case).
 - **RDD** jobs should read their input from a **file** (`lc.textFile`), as in the
   paper (`sc.textFile(dataset)`); tracing a job whose source is `lc.parallelize` hits
-  a Titian replay-path edge case on shallow DAGs.
+  a replay-path edge case on shallow DAGs.
 - **RDD** provenance pre-shrink is **best-effort**: the trace is validated by
   re-running, and falls back to the full input if it under-resolves — so the isolated
   culprit is always correct, but the candidate set may not always be pre-shrunk.
