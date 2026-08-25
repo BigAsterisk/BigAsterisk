@@ -62,7 +62,7 @@ tool's page says which.
 |---|---|---|---|
 | [Titian](docs/titian.md) | Record-level provenance, backward and forward | application | **integrated** |
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
-| [BigDebug](docs/bigdebug.md) | On-demand watchpoints over distributed intermediate data | application | **partial** — watchpoints; breakpoints pending |
+| [BigDebug](docs/bigdebug.md) | Watchpoints and crash-culprit determination over distributed intermediate data | application | **partial** — breakpoints pending |
 | [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **partial** — influence; UDF taint pending |
 | [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |

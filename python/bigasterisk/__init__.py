@@ -45,6 +45,7 @@ from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
 from bigasterisk.influence import Influence, InfluenceProvenance
 from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
 from bigasterisk.testgen import TestGen, TestSuite, TestCase
+from bigasterisk.crashculprit import CrashCulpritGuards, CrashCulprit, CulpritRecord
 
 __all__ = [
     "configure",
@@ -83,6 +84,10 @@ __all__ = [
     "TestGen",
     "TestSuite",
     "TestCase",
+    "crash_culprit",
+    "CrashCulpritGuards",
+    "CrashCulprit",
+    "CulpritRecord",
 ]
 
 #: The ``spark.sql.extensions`` entries the Spark 4 binding installs, mirroring
@@ -232,3 +237,17 @@ def testgen(spark):
         print(suite.coverage)
     """
     return TestGen(spark)
+
+
+def crash_culprit(spark):
+    """Crash-culprit determination for ``spark``.
+
+    When a query dies on bad data, name the record that killed it::
+
+        guard = bigasterisk.crash_culprit(spark).guard(orders)
+        try:
+            guard.df.collect()
+        except Exception:
+            print(guard.culprit)
+    """
+    return CrashCulpritGuards(spark)

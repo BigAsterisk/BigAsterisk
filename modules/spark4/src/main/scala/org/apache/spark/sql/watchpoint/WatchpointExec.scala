@@ -116,14 +116,18 @@ object WatchpointStrategy extends SparkStrategy {
 }
 
 /**
- * Installs watchpoint planning into a session.
+ * Installs BigDebug's planning hooks into a session: watchpoints, and the crash-culprit
+ * guard.
  *
- * Registered alongside the lineage extension through
- * [[org.bigasterisk.spark4.Spark4Binding.requiredConf]]; Spark accepts a
- * comma-separated list of extensions, so the two are independent.
+ * Both are primitives of the same paper and neither needs the other, so they share one
+ * extension rather than taking two entries in `spark.sql.extensions`. Registered
+ * through [[org.bigasterisk.spark4.Spark4Binding.requiredConf]] alongside the lineage
+ * and profiling extensions; Spark accepts a comma-separated list, so each tool's hooks
+ * stay independent.
  */
 class WatchpointExtension extends (SparkSessionExtensions => Unit) {
   override def apply(extensions: SparkSessionExtensions): Unit = {
     extensions.injectPlannerStrategy(_ => WatchpointStrategy)
+    extensions.injectPlannerStrategy(_ => org.apache.spark.sql.bigdebug.CrashCulpritStrategy)
   }
 }

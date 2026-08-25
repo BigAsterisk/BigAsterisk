@@ -3,6 +3,7 @@ package org.bigasterisk.spark4
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
+import org.apache.spark.sql.bigdebug.CrashCulpritEngine
 import org.apache.spark.sql.desql.DeSqlEngine
 import org.apache.spark.sql.fuzz.FuzzEngine
 import org.apache.spark.sql.influence.InfluenceEngine
@@ -11,7 +12,7 @@ import org.apache.spark.sql.testgen.TestGenEngine
 import org.apache.spark.sql.vega.VegaEngine
 import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{DeSqlSupport, FuzzSupport, InfluenceSupport, LineageSupport, PerfDebugSupport, SparkBinding, TestGenSupport, TraceCursor, VegaSupport, WatchpointSupport}
+import org.bigasterisk.api.{CrashCulpritSupport, DeSqlSupport, FuzzSupport, InfluenceSupport, LineageSupport, PerfDebugSupport, SparkBinding, TestGenSupport, TraceCursor, VegaSupport, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -43,6 +44,8 @@ class Spark4Binding extends SparkBinding {
   override val desql: DeSqlSupport = new DeSqlEngine
 
   override val watchpoints: WatchpointSupport = new Spark4Watchpoints
+
+  override val crashCulprit: CrashCulpritSupport = new CrashCulpritEngine
 
   override val vega: VegaSupport = new VegaEngine()
 

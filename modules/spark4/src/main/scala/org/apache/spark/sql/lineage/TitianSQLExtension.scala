@@ -449,6 +449,8 @@ case class InsertTitianTaps(session: SparkSession) extends Rule[SparkPlan] with 
         // watchpoint only observes, so id threading is unaffected
       case _: org.apache.spark.sql.perfdebug.LatencyExec => // pass-through: profiling
         // only times records, so id threading is unaffected
+      case _: org.apache.spark.sql.bigdebug.CrashCulpritExec => // pass-through: the
+        // guard only remembers the current record
       case _: ExpandExec | _: GenerateExec => // 1->N within the pipeline: the
         // generated rows are consumed depth-first per input row, so currentInputId
         // threading remains exact (rollup/cube/count-distinct, explode)

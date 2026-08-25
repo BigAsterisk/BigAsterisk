@@ -25,7 +25,7 @@ written for.
 - :material-step-forward: **[DeSQL](desql.md)** — step through a SQL query and inspect
   the intermediate data at each part.
 - :material-eye-outline: **[BigDebug](bigdebug.md)** — watchpoints on the records
-  flowing through a query.
+  flowing through a query, and which record killed it when it dies.
 - :material-refresh-auto: **[Vega](vega.md)** — successive query revisions start from
   what they share with the last one.
 - :material-target: **[OptDebug](optdebug.md)** — which operation of a query is at
@@ -78,7 +78,7 @@ is wrong.
 |---|---|---|
 | [Titian](titian.md) | Record-level provenance, backward and forward | **integrated** |
 | [BigSift](bigsift.md) | Minimum failure-inducing input set | **integrated** |
-| [BigDebug](bigdebug.md) | On-demand watchpoints over distributed intermediate data | **partial** |
+| [BigDebug](bigdebug.md) | Watchpoints and crash-culprit determination | **partial** |
 | [FlowDebug](flowdebug.md) | Influence-based provenance, taint inside UDFs | **partial** |
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
 | [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |

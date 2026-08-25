@@ -52,6 +52,9 @@ trait SparkBinding {
   /** On-demand watchpoints over intermediate data for this Spark version. */
   def watchpoints: WatchpointSupport
 
+  /** Crash-culprit determination for this Spark version. */
+  def crashCulprit: CrashCulpritSupport
+
   /** Incremental re-execution across query revisions for this Spark version. */
   def vega: VegaSupport
 

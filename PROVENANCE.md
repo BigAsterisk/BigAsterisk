@@ -72,8 +72,9 @@ of the earlier migration, and they cannot be ported mechanically: the original w
 through a **forked executor backend** (`BDExecutorBackend`, `BDDriverBackend`) that
 intercepts task execution inside Spark.
 
-**On-demand watchpoints are implemented**, for Spark SQL and PySpark. Three mechanisms
-in the original each needed the fork, and each has a stock-Spark equivalent:
+**On-demand watchpoints and crash-culprit determination are implemented**, for Spark SQL
+and PySpark. Three mechanisms in the original each needed the fork, and each has a
+stock-Spark equivalent:
 
 | Original | Needed a fork because | Replacement |
 |---|---|---|
@@ -92,10 +93,21 @@ Deliberate differences from the upstream implementation:
 - **No live predicate replacement.** The original could swap a watchpoint's predicate on
   a running job by pushing new bytecode. Here a new guard means a new watchpoint.
 
+Crash-culprit determination rests on one further detail. Accumulators are merged only
+from tasks that *succeed*, which is exactly wrong when the interesting task is the one
+that died; Spark supports merging updates from failed tasks through `countFailedValues`
+on registration, which is how its own task metrics survive a failure. That flag is what
+makes the primitive possible without the forked executor backend. Its limit is a batched
+Python or Arrow UDF above the guard: the batch crosses to the worker before any of it can
+fail, so the guard has already emitted the whole batch. That cannot be detected from the
+guard — unlike PerfDebug, whose risk is a batched operator *below* the profiling point
+and therefore visible in the plan it holds.
+
+Fine-grained latency alerts are covered by PerfDebug.
+
 Still outstanding, and tracked as re-architecture rather than as a port: **simulated
-breakpoints**, **crash-culprit determination**, and **fine-grained latency alerts**.
-The first two rest on the same task-level interception the forked executor backend
-provided; the third overlaps with PerfDebug.
+breakpoints**. Pausing a live task and resuming it needs a driver-executor channel that
+stock Spark does not offer, which is what the forked executor backend provided.
 
 ### FlowDebug — partial: influence-based provenance implemented
 

@@ -32,6 +32,7 @@ import org.apache.spark.sql.SparkSession
  * @groupname lineage Data provenance
  * @groupname desql Step-through SQL debugging
  * @groupname watchpoint Watchpoints
+ * @groupname crashculprit Crash-culprit determination
  * @groupname vega Incremental re-execution
  * @groupname perfdebug Performance debugging
  * @groupname influence Influence-based provenance
@@ -167,6 +168,14 @@ object BigAsterisk {
    * @group watchpoint
    */
   def watchpoints(spark: SparkSession): WatchpointSupport = binding(spark).watchpoints
+
+  /**
+   * Crash-culprit determination for `spark`: when a query dies on bad data, which
+   * record killed it.
+   *
+   * @group crashculprit
+   */
+  def crashCulprit(spark: SparkSession): CrashCulpritSupport = binding(spark).crashCulprit
 
   /**
    * Incremental re-execution for `spark`: successive revisions of a query start from
