@@ -36,7 +36,7 @@ jobs:
       # which needs a Spark binary distribution on disk. Cached across runs.
       - name: Cache Spark distribution
         id: spark-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/${{ env.SPARK_DIST }}
           key: ${{ runner.os }}-${{ env.SPARK_DIST }}
@@ -96,7 +96,7 @@ jobs:
 
       - name: Cache Spark distribution
         id: spark-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: tools/${{ env.SPARK_DIST }}
           key: ${{ runner.os }}-${{ env.SPARK_DIST }}
