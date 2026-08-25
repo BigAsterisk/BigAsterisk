@@ -87,6 +87,34 @@ trait PerfProfile {
    */
   def slowestJson: Array[String]
 
+  /**
+   * The measured records behind the outputs `outputWhere` selects, most expensive first.
+   *
+   * A profile says which records were expensive. This says which of them were expensive
+   * *for a particular result* — the question worth asking when one output row is slow
+   * and the rest are not, and the one that needs provenance as well as timing.
+   *
+   * `query` must be built on [[df]], or nothing was measured for it. The query is run
+   * once more with provenance capture on, each selected output is traced back to the
+   * records behind it, and those records are matched against what this profile measured.
+   *
+   * Only records among the profile's [[slowest]] can be reported, which is the point:
+   * the question is which inputs carry the largest cost, not what every input cost.
+   *
+   * @param outputWhere a SQL predicate over `query`'s output selecting the results to
+   *        explain
+   */
+  def blame(query: DataFrame, outputWhere: String, topK: Int = 10): Seq[RecordCost]
+
+  /**
+   * The same records as [[blame]], each as a JSON object with the record's fields plus
+   * a `__nanos` entry.
+   *
+   * Provided for language bindings that cannot marshal a Spark `Row` across the process
+   * boundary — the PySpark front end reads this.
+   */
+  def blameJson(query: DataFrame, outputWhere: String, topK: Int = 10): Array[String]
+
   /** Discards what has been measured, so the profile can be reused for another run. */
   def reset(): Unit
 }
@@ -124,6 +152,13 @@ trait PerfDebugSupport {
    * Timing is taken inside Spark's generated code, so what is measured is the work the
    * upstream pipeline did for that record. Only the `topK` most expensive records are
    * retained; the rest are counted, so the mean and the skew ratio are exact.
+   *
+   * ==Where to put the profiling point==
+   * Above the work you want measured. Within a fused pipeline the interval before a
+   * record covers the work done for the *previous* one, so a point placed below an
+   * expensive operation charges its cost to the record that follows. Profiling
+   * `orders.withColumn("x", slowUdf(...))` measures the UDF; profiling `orders` and
+   * applying the UDF afterwards does not.
    *
    * @param topK how many expensive records to keep. Keep it small: these are held on
    *        the driver.

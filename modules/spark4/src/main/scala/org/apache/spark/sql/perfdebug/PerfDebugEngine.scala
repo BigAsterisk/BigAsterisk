@@ -87,15 +87,20 @@ private[perfdebug] class Spark4PerfProfile(
     }
   }
 
-  override def slowestJson: Array[String] = {
-    val costs = slowest
+  override def blameJson(
+      query: DataFrame, outputWhere: String, topK: Int = 10): Array[String] =
+    asJson(blame(query, outputWhere, topK))
+
+  override def slowestJson: Array[String] = asJson(slowest)
+
+  /** Renders costed records as JSON, splicing the cost in beside the record's fields. */
+  private def asJson(costs: Seq[RecordCost]): Array[String] = {
     if (costs.isEmpty) {
       Array.empty[String]
     } else {
       import scala.jdk.CollectionConverters._
       val rowsJson = df.sparkSession
-        .createDataFrame(costs.map(_.row).asJava, df.schema).toJSON.collect()
-      // splice the cost in beside the record's own fields
+        .createDataFrame(costs.map(_.row).asJava, costs.head.row.schema).toJSON.collect()
       rowsJson.zip(costs).map { case (json, cost) =>
         val body = json.trim
         val inner = body.substring(1, body.length - 1)
@@ -103,6 +108,49 @@ private[perfdebug] class Spark4PerfProfile(
         else s"""{"__nanos":${cost.nanos},$inner}"""
       }
     }
+  }
+
+  override def blame(
+      query: DataFrame,
+      outputWhere: String,
+      topK: Int = 10): Seq[RecordCost] = {
+    require(topK >= 0, s"topK must not be negative, got $topK")
+    val measured = slowest
+    if (measured.isEmpty) return Seq.empty
+
+    val spark = query.sparkSession
+    val lineage = org.bigasterisk.api.BigAsterisk.lineage(spark)
+    lineage.enableCapture(spark)
+    val witnesses =
+      try {
+        val augmented = query.withColumn(
+          "__bigasterisk_selected", org.apache.spark.sql.functions.expr(outputWhere))
+        val verdict = augmented.schema.fieldIndex("__bigasterisk_selected")
+        val outputs = lineage.collectWithLineage(augmented)
+        val selected = outputs.collect {
+          case (row, id) if !row.isNullAt(verdict) && row.getBoolean(verdict) => id
+        }
+        require(selected.nonEmpty, s"no output matches '$outputWhere'")
+        val sourceIds = lineage.backward(augmented, selected.toSeq)
+        val rows =
+          if (sourceIds.isEmpty) Array.empty[Row]
+          else lineage.showInputs(augmented, sourceIds.toSeq)
+        lineage.releaseLineage(augmented)
+        rows
+      } finally lineage.disableCapture(spark)
+
+    if (witnesses.isEmpty) return Seq.empty
+
+    // Match measured records against the traced ones on the columns both expose: a
+    // traced witness may carry a pruned schema, and a lineage id from this run has
+    // nothing to do with one from the profiled run.
+    val common = witnesses.head.schema.fieldNames.toSeq
+      .intersect(measured.head.row.schema.fieldNames.toSeq)
+    if (common.isEmpty) return Seq.empty
+    def key(row: Row): Seq[Any] = common.map(c => row.get(row.fieldIndex(c)))
+    val wanted = witnesses.map(key).toSet
+
+    measured.filter(c => wanted.contains(key(c.row))).sortBy(-_.nanos).take(topK)
   }
 
   override def reset(): Unit = accumulator.reset()

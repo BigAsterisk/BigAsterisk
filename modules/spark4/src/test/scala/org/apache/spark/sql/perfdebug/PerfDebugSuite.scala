@@ -166,6 +166,57 @@ class PerfDebugSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     profile.recordLevel shouldBe true
   }
 
+  test("an expensive output is attributed to the record that made it expensive") {
+    // orders_csv is one file, so the source is captured without a Coalesce in the plan
+    // Profile *above* the expensive work. Within a fused pipeline the interval before a
+    // record covers the work done for the previous one, so a point below the UDF would
+    // charge its cost to the following record.
+    val source = spark.read.schema("oid STRING, cid STRING, amount INT")
+      .csv("src/test/resources/orders_csv")
+      .withColumn("cost", expensiveForOutlier(col("amount")))
+    val profile = perfdebug.profile(source, topK = 5)
+
+    val totals = profile.df.groupBy("cid").sum("amount")
+    totals.collect()
+
+    // c2 is the group holding the outlier; the record blamed for it is that outlier
+    val blamed = profile.blame(totals, "cid = 'c2'")
+    blamed should not be empty
+    blamed.head.row.getInt(2) shouldBe 99999
+    blamed.head.millis should be > 50.0
+  }
+
+  test("a different output is attributed to different records") {
+    val source = spark.read.schema("oid STRING, cid STRING, amount INT")
+      .csv("src/test/resources/orders_csv")
+      .withColumn("cost", expensiveForOutlier(col("amount")))
+    val profile = perfdebug.profile(source, topK = 12)
+
+    val totals = profile.df.groupBy("cid").sum("amount")
+    totals.collect()
+
+    // c1 has no outlier, so the expensive record must not be blamed for it
+    val blamed = profile.blame(totals, "cid = 'c1'")
+    blamed.map(_.row.getInt(2)) should not contain 99999
+  }
+
+  test("blame reports nothing when the profile measured nothing") {
+    val source = spark.read.schema("oid STRING, cid STRING, amount INT")
+      .csv("src/test/resources/orders_csv")
+    val profile = perfdebug.profile(source, topK = 3)
+    // never run, so nothing was measured
+    profile.blame(profile.df.groupBy("cid").sum("amount"), "cid = 'c2'") shouldBe empty
+  }
+
+  test("blame rejects a predicate that selects nothing") {
+    val source = spark.read.schema("oid STRING, cid STRING, amount INT")
+      .csv("src/test/resources/orders_csv")
+    val profile = perfdebug.profile(source, topK = 3)
+    val totals = profile.df.groupBy("cid").sum("amount")
+    totals.collect()
+    an[IllegalArgumentException] should be thrownBy profile.blame(totals, "cid = 'nobody'")
+  }
+
   test("mean and skew are well defined before anything runs") {
     val profile = perfdebug.profile(orders, topK = 3)
     profile.records shouldBe 0L

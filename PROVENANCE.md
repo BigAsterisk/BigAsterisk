@@ -28,7 +28,7 @@ repositories remain the historical record; they are not modified by this project
 | BigDebug | integrated (reimplemented) | [maligulzar/bigdebug](https://github.com/maligulzar/bigdebug) | `2.1` | `b6baa11aff6d` | 2019-10-11 |
 | FlowDebug | partial (reimplemented) | [UCLA-SEAL/FlowDebug](https://github.com/UCLA-SEAL/FlowDebug) | `main` | `0ef74c7afd69` | 2022-06-03 |
 | OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
-| PerfDebug | partial (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
+| PerfDebug | integrated (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
 | Vega | integrated (reimplemented) | **no artifact** | — | — | — |
 | BigTest | partial (reimplemented) | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
@@ -202,10 +202,12 @@ the `topK` most expensive records are materialised.
 
 Deliberate differences from the upstream implementation:
 
-- **Measured at a point, not propagated through the pipeline.** The original computes a
-  latency for every record at every stage and traces the total back to the inputs. Here
-  you place a profiling point and get the cost of the pipeline below it. This is a
-  smaller claim, and it is the part that does not need a fork.
+- **Measured at a point, attributed on demand.** The original carries a latency value
+  alongside every record through every stage, so the total is always available. Here you
+  place a profiling point, and attributing a particular expensive result back to the
+  inputs responsible is done at the point of asking, by tracing that result's provenance
+  and matching it against what was measured. Same question answered, without carrying
+  per-record state across stage boundaries — which is the part that needed the fork.
 - **No Ignite, no external store.** Retained records live in the accumulator.
 - **Record-level attribution stops at a batched operator.** A Python or Arrow UDF
   computes a whole batch in one call to another process, so the batch's cost cannot be

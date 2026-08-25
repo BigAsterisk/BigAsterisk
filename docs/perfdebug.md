@@ -64,6 +64,44 @@ Only the `topK` most expensive records are materialised and shipped to the drive
 totals are exact — every record is counted and its cost summed — so `meanNanos` and
 `skew` are exact even though `slowest` is a sample.
 
+## Which input made *this* output expensive
+
+A profile says which records were expensive. Often the question is narrower: one output
+row is slow and the rest are not, and you want the inputs responsible for that one.
+
+```scala
+val profile = BigAsterisk.perfdebug(spark).profile(withExpensiveStep, topK = 20)
+val totals = profile.df.groupBy("cid").sum("amount")
+totals.collect()
+
+profile.blame(totals, "cid = 'c2'").foreach(println)
+// 61.238 ms  [o8,c2,99999]
+```
+
+```python
+profile.blame(totals, "cid = 'c2'")
+```
+
+This needs timing *and* provenance: the query is run once more with capture on, each
+selected output is traced back to the records behind it, and those are matched against
+what the profile measured. Only records among the profile's `slowest` can be reported,
+which is the point — the question is which inputs carry the largest cost, not what every
+input cost.
+
+## Where to put the profiling point
+
+**Above the work you want measured.** Within a fused pipeline the interval before a
+record covers the work done for the *previous* one, so a point placed below an expensive
+operation charges its cost to the record that follows.
+
+```scala
+// measures the UDF
+perfdebug.profile(orders.withColumn("x", slowUdf(col("amount"))))
+
+// does not: the UDF runs above the profiling point
+perfdebug.profile(orders).df.withColumn("x", slowUdf(col("amount")))
+```
+
 ## Record-level attribution has a boundary
 
 `profile.recordLevel` is **false** when a batched operator sits below the profiling
@@ -82,6 +120,8 @@ attribution is what you need. The tool reports this rather than leaving you to i
 
 - **Overhead.** One `nanoTime` call, a subtraction and a comparison per record. That is
   cheap but not free, and it is on by default only for the DataFrame you profiled.
+- **Attribution reaches only the profile's retained records.** Raise `topK` if a
+  suspected culprit is not among them.
 - **Accumulators accumulate.** Re-running a query without `reset()` adds to the totals.
 - **Retained records live on the driver.** Keep `topK` small.
 - **Spark Connect.** The timing operator is planned into the driver-side physical plan,
@@ -95,6 +135,7 @@ of needing to carry per-record state across stage boundaries in Spark 1.x/2.x.
 
 Here the timing is taken inside Spark's generated code and travels back by
 `AccumulatorV2`, so there is no forked Spark and no external store. The measurement is
-taken at a point you choose rather than propagated through the whole pipeline, which is
-a smaller claim than the paper's — see
+taken at a point you choose rather than carried alongside every record through every
+stage; attribution back to the inputs of a particular result is done with provenance at
+the point of asking, rather than by propagation. See
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

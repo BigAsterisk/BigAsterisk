@@ -119,6 +119,17 @@ class PerfProfile:
         """
         return self._j.skew()
 
+    def blame(self, query, output_where, top_k=10):
+        """The measured records behind the outputs ``output_where`` selects.
+
+        A profile says which records were expensive. This says which of them were
+        expensive *for a particular result*. ``query`` must be built on :attr:`df`, and
+        is run once more with provenance capture so each selected output can be traced
+        back to the records behind it.
+        """
+        return [RecordCost(json.loads(s))
+                for s in self._j.blameJson(query._jdf, output_where, int(top_k))]
+
     def reset(self):
         """Discard measurements, so the profile can be reused for another run."""
         self._j.reset()

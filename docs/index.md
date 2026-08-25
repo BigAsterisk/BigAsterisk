@@ -84,7 +84,7 @@ is wrong.
 | [BigDebug](bigdebug.md) | Breakpoints, watchpoints and crash-culprit determination | **integrated** |
 | [FlowDebug](flowdebug.md) | Influence-based provenance, taint inside UDFs | **partial** |
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
-| [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
+| [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **integrated** |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
 | [Vega](vega.md) | Incremental re-execution across query revisions | **integrated** |
 | [BigTest](testgen.md) | Symbolic execution over dataflow operators and UDFs | **partial** |
@@ -93,7 +93,7 @@ is wrong.
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
 | [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **integrated** |
 
-All thirteen now run: nine are complete, four reproduce part of their paper. Each
+All thirteen now run: ten are complete, three reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding. The
 upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

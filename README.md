@@ -65,7 +65,7 @@ tool's page says which.
 | [BigDebug](docs/bigdebug.md) | Breakpoints, watchpoints and crash-culprit determination over distributed intermediate data | application | **integrated** |
 | [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **partial** — influence; UDF taint pending |
 | [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
-| [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |
+| [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **integrated** |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **integrated** — reimplemented from the paper |
 | [BigTest](docs/testgen.md) | Symbolic execution over dataflow operators and UDFs | application | **partial** — SQL predicates; UDF bytecode pending |
@@ -74,7 +74,7 @@ tool's page says which.
 | [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
 | [NaturalSym](docs/testgen.md) | Symbolic execution that generates natural, distribution-aware inputs | application | **integrated** |
 
-All thirteen now run: nine are complete, four reproduce part of their paper. Each
+All thirteen now run: ten are complete, three reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding — in
 several cases the missing piece is what required a forked Spark, a JDK 8 symbolic
 execution engine, or a benchmark suite that no longer exists. Every tool records the
