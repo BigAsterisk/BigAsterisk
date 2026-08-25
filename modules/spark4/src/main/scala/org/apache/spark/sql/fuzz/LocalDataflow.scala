@@ -9,7 +9,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.{Inner, JoinType}
 import org.apache.spark.sql.catalyst.plans.logical._
-import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.types.{StructField, StructType}
 
 /**
  * The dataflow's semantics, evaluated without Spark.
@@ -84,7 +84,7 @@ object LocalDataflow {
         val key = leafKey(leaf)
         val rows = tables.getOrElse(key, unsupported(s"no data supplied for ${leaf.nodeName}"))
         val toCatalyst = CatalystTypeConverters.createToCatalystConverter(
-          StructType.fromAttributes(leaf.output))
+          StructType(leaf.output.map(a => StructField(a.name, a.dataType, a.nullable))))
         rows.map(r => toCatalyst(r).asInstanceOf[InternalRow])
 
       // wrappers that do not change the rows
