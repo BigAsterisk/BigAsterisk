@@ -25,11 +25,12 @@ import org.bigasterisk.api.{VegaRun, VegaSupport}
  * substitution unnecessary: materializing a part is enough for the optimizer to route a
  * later revision through it.
  *
- * ==What is not implemented==
- * The paper's second optimization — rewriting the dataflow to push a code modification
- * as late as possible, so an edit near the sources does not invalidate the whole
- * prefix — is not implemented. Revisions that change an early operator will re-execute
- * from that operator down. See `PROVENANCE.md`.
+ * ==Moving an edit later==
+ * Reuse is worth only as much as the prefix two revisions share, and an edit near the
+ * sources destroys almost all of it. [[LateEdit]] rewrites the query so such an edit
+ * applies later — above a join rather than below it — leaving the unchanged work
+ * beneath it reusable. The rewrite runs only when it actually increases reuse, and only
+ * where it cannot change the answer.
  */
 class VegaEngine(override val maxMaterialized: Int = VegaEngine.DefaultMaxMaterialized)
   extends VegaSupport {
@@ -50,7 +51,22 @@ class VegaEngine(override val maxMaterialized: Int = VegaEngine.DefaultMaxMateri
           "does not hold.")
     }
 
-    val nodes = DeSqlEngine.stepNodes(df.queryExecution.analyzed)
+    // Moving edits late is a *normalisation*, applied to every revision rather than
+    // only to the one that benefits. It has to be: a revision can only reuse what the
+    // previous one stored, so if v1 materialised the un-normalised shape there is
+    // nothing for v2's normalised shape to match.
+    //
+    // Normalising costs nothing at execution time. Catalyst pushes filters back down
+    // during optimisation, so the rewritten query plans to the same physical plan; what
+    // changes is only which subtrees Vega sees, and therefore what it can share across
+    // revisions. What it does cost is memory: the materialised join is the unfiltered
+    // one, which is larger — and is exactly why it survives an edit to the filter.
+    val asWritten = df.queryExecution.analyzed
+    val plan = LateEdit.pullUpFilters(asWritten)
+    val rewritten = !plan.fastEquals(asWritten)
+    val planned = if (rewritten) ClassicDataset.ofRows(classic, plan) else df
+
+    val nodes = DeSqlEngine.stepNodes(plan)
 
     // Candidates, deepest first. Leaves are excluded: re-reading a source is what the
     // storage layer is for, and caching it would trade disk for memory with no saving
@@ -79,7 +95,7 @@ class VegaEngine(override val maxMaterialized: Int = VegaEngine.DefaultMaxMateri
       }
     }
 
-    VegaEngine.Run(df, reused.toSeq, fresh.toSeq, nodes.length)
+    VegaEngine.Run(planned, reused.toSeq, fresh.toSeq, nodes.length, rewritten)
   }
 
   override def materialized: Seq[String] =
@@ -111,5 +127,6 @@ object VegaEngine {
       df: DataFrame,
       reused: Seq[String],
       materialized: Seq[String],
-      steps: Int) extends VegaRun
+      steps: Int,
+      rewritten: Boolean) extends VegaRun
 }

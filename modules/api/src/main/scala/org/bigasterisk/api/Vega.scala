@@ -29,6 +29,18 @@ trait VegaRun {
   /** How many parts the query decomposes into. */
   def steps: Int
 
+  /**
+   * Whether the query was rewritten to move filters later in the plan.
+   *
+   * This is a normalisation, applied to every revision rather than only where it pays
+   * off — a revision can only reuse what the previous one stored, so both have to be in
+   * the same shape. It preserves the answer exactly, and costs nothing at execution
+   * time because Catalyst pushes filters back down while optimising.
+   *
+   * [[df]] is the rewritten query when this is true.
+   */
+  def rewritten: Boolean
+
   /** Fraction of this query's parts that came from a previous revision. */
   final def reuseRatio: Double = if (steps == 0) 0.0 else reused.size.toDouble / steps
 }
@@ -70,6 +82,10 @@ trait VegaSupport {
    * Materialization costs time and memory on the run that performs it, and pays for
    * itself on the next revision — the trade-off the technique is built on. Nothing is
    * materialized above [[maxMaterialized]].
+   *
+   * When an edit sits low in the plan and would otherwise invalidate everything above
+   * it, the query is rewritten to apply that edit later, so the unchanged work below
+   * stays reusable. The rewrite preserves the answer; see [[VegaRun.rewritten]].
    */
   def run(df: DataFrame): VegaRun
 

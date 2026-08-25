@@ -29,6 +29,13 @@ class VegaSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
 
   private def newEngine(max: Int = VegaEngine.DefaultMaxMaterialized) = new VegaEngine(max)
 
+  /** A join whose left input is a derived table carrying the filter, so analysis puts
+    * the filter below the join. */
+  private def subqueryFilter(threshold: Int): String =
+    s"""SELECT o.oid, c.name
+       |FROM (SELECT * FROM orders WHERE amount > $threshold) o
+       |JOIN customers c ON o.cid = c.cid""".stripMargin
+
   private def usesCache(df: org.apache.spark.sql.DataFrame): Boolean =
     df.queryExecution.executedPlan.exists {
       case _: InMemoryTableScanExec => true
@@ -143,6 +150,72 @@ class VegaSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
       "SELECT cid, SUM(amount) FROM orders WHERE amount > 100 GROUP BY cid")
     ).reused shouldBe empty
     vega.clear()
+  }
+
+  test("an edit below a join is moved above it, so the join stays reusable") {
+    val vega = newEngine()
+    try {
+      // the filter is written inside a derived table, so analysis places it *below*
+      // the join — the shape where an early edit would otherwise spoil everything above
+      vega.run(spark.sql(subqueryFilter(100))).df.collect()
+
+      // v2 changes only the threshold. As written the edit sits below the join, so
+      // nothing below it matches; rewritten, the join is identical and reusable.
+      val revised = vega.run(spark.sql(subqueryFilter(200)))
+
+      revised.rewritten shouldBe true
+      revised.reused.exists(_.contains("Join")) shouldBe true
+    } finally vega.clear()
+  }
+
+  test("the rewrite does not change the answer") {
+    val vega = newEngine()
+    try {
+      val sql = subqueryFilter(200)
+      val expected = spark.sql(sql).collect().map(r => (r.getString(0), r.getString(1))).toSet
+
+      vega.run(spark.sql(subqueryFilter(100))).df.collect()
+
+      val revised = vega.run(spark.sql(sql))
+      revised.rewritten shouldBe true
+      revised.df.collect().map(r => (r.getString(0), r.getString(1))).toSet shouldBe expected
+    } finally vega.clear()
+  }
+
+  test("a query with nothing to move is not rewritten") {
+    val vega = newEngine()
+    try {
+      // the WHERE is already above the join in the analysed plan, so there is nothing
+      // for the normalisation to do
+      val run = vega.run(spark.sql(
+        """SELECT o.oid, c.name FROM orders o JOIN customers c ON o.cid = c.cid
+          |WHERE o.amount > 100""".stripMargin))
+      run.rewritten shouldBe false
+    } finally vega.clear()
+  }
+
+  test("a filter is never pulled through an aggregation") {
+    // filtering rows before grouping and filtering groups after are different queries
+    val plan = spark.sql(
+      "SELECT cid, SUM(amount) AS total FROM orders WHERE amount > 100 GROUP BY cid")
+      .queryExecution.analyzed
+    LateEdit.pullUpFilters(plan).fastEquals(plan) shouldBe true
+  }
+
+  test("a filter is not pulled through the null-supplying side of an outer join") {
+    // on the null-supplying side, filtering before the join drops a row while filtering
+    // after keeps it with nulls
+    val plan = spark.sql(
+      """SELECT c.name, o.oid FROM customers c LEFT OUTER JOIN orders o ON o.cid = c.cid
+        |AND o.amount > 100""".stripMargin).queryExecution.analyzed
+    val rewritten = LateEdit.pullUpFilters(plan)
+    // whatever it does, the answer must be preserved
+    val original = spark.sql(
+      """SELECT c.name, o.oid FROM customers c LEFT OUTER JOIN orders o ON o.cid = c.cid
+        |AND o.amount > 100""".stripMargin).collect().length
+    org.apache.spark.sql.classic.Dataset
+      .ofRows(spark.asInstanceOf[org.apache.spark.sql.classic.SparkSession], rewritten)
+      .collect().length shouldBe original
   }
 
   test("a negative cap is rejected") {

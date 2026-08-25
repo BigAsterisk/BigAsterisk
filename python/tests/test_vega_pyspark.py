@@ -54,6 +54,28 @@ actual = {(r["cid"], r["total"]) for r in second.df.collect()}
 check("reuse does not change the answer", actual == expected,
       "%r vs %r" % (actual, expected))
 
+# an edit written inside a derived table sits below the join; Vega moves it above so
+# the join itself stays reusable across the revision
+v.clear()
+spark.read.schema("cid STRING, name STRING") \
+     .csv(os.path.join(DATA, "customers_csv")).createOrReplaceTempView("customers")
+
+
+def joined(threshold):
+    return ("SELECT o.oid, c.name FROM (SELECT * FROM orders WHERE amount > %d) o "
+            "JOIN customers c ON o.cid = c.cid" % threshold)
+
+
+expected_join = {(r["oid"], r["name"]) for r in spark.sql(joined(200)).collect()}
+v.run(joined(100)).df.collect()
+moved = v.run(joined(200))
+check("the edit is moved later", moved.rewritten is True, repr(moved))
+check("the join survives the edit", any("Join" in r for r in moved.reused), str(moved.reused))
+check("moving the edit does not change the answer",
+      {(r["oid"], r["name"]) for r in moved.df.collect()} == expected_join)
+v.clear()
+v.run(BASE).df.collect()
+
 unrelated = v.run("SELECT oid FROM orders WHERE amount < 0")
 check("unrelated query reuses nothing", unrelated.reused == [], str(unrelated.reused))
 

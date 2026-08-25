@@ -30,7 +30,7 @@ repositories remain the historical record; they are not modified by this project
 | OptDebug | partial (reimplemented) | [maligulzar/OptDebug](https://github.com/maligulzar/OptDebug) | `master` | `207a92b306e9` | 2021-10-25 |
 | PerfDebug | partial (reimplemented) | [UCLA-SEAL/PerfDebug](https://github.com/UCLA-SEAL/PerfDebug) | `main` | `ec6f93861fcc` | 2021-09-26 |
 | DeSQL | integrated (reimplemented) | [SEED-VT/DeSQL](https://github.com/SEED-VT/DeSQL) | `Artifacts-default-branch` | `6855f746fcdb` | 2024-05-31 |
-| Vega | partial (reimplemented) | **no artifact** | — | — | — |
+| Vega | integrated (reimplemented) | **no artifact** | — | — | — |
 | BigTest | partial (reimplemented) | [SEED-VT/BigTest](https://github.com/SEED-VT/BigTest) | `master` | `5ce2cb968bb5` | 2026-06-17 |
 | BigFuzz | partial (reimplemented) | [UCLA-SEAL/BigFuzz](https://github.com/UCLA-SEAL/BigFuzz) | `main` | `b5d3deedd66a` | 2021-09-26 |
 | DepFuzz | integrated (reimplemented) | [SEED-VT/DepFuzz](https://github.com/SEED-VT/DepFuzz) | `main` | `27bc8c509371` | 2026-06-15 |
@@ -234,7 +234,7 @@ Deliberate differences from the upstream implementation:
 - **Correlated subqueries are refused** with a clear error rather than returning rows,
   since their plans carry outer references and cannot execute standalone.
 
-### Vega — partial, reimplemented from the paper
+### Vega — reimplemented from the paper
 
 No public source survives. The repository referenced by the paper does not exist, and
 none of the 35 branches of `maligulzar/bigdebug` contains a Vega implementation; the
@@ -248,7 +248,7 @@ Applications* (SoCC 2016). The paper describes two optimizations:
 | Optimization | Status |
 |---|---|
 | Reuse materialized intermediate results from the previous run of a similar program | **implemented** |
-| Rewrite the dataflow to push code modifications as late as possible, so execution can start from a later materialization point | **not implemented** |
+| Rewrite the dataflow to push code modifications as late as possible, so execution can start from a later materialization point | **implemented for filters** |
 
 The first is implemented by decomposing a query into its parts (the same decomposition
 DeSQL exposes), materializing the reusable ones, and matching a later revision against
@@ -256,10 +256,21 @@ them on Catalyst's `canonicalized` plan form. That is the same basis Spark's own
 `CacheManager` uses, so materializing a part is sufficient for the optimizer to route a
 later revision through it — no plan substitution is needed.
 
-Without the second optimization, an edit near the sources invalidates everything above
-it, which is precisely the case the paper's rewrite exists to rescue. Expect reuse on
-revisions that extend or change a query near its output, not on ones that change an
-early filter.
+The second is implemented for **filters**: a predicate written below a join — inside a
+derived table or a CTE, where analysis really does place it beneath the join — is pulled
+above it, so the join stays identical to the one the previous revision materialized. It
+is applied as a normalisation to every revision, since a revision can only reuse what the
+previous one stored, and only to queries containing a join, since without expensive work
+to get past there is nothing to gain.
+
+The rewrite is legal only where it cannot change the answer: through an inner join on
+either side, an outer join on the preserved side, a projection that carries the filter's
+columns through unchanged, and an alias — never through an aggregation. Catalyst pushes
+filters back down while optimising, so the rewritten query plans to the same physical
+plan; the cost is that the materialized join is the unfiltered one, which is larger, and
+that is precisely what makes it survive an edit to the filter.
+
+An edit to a projection or an aggregate is not relocated.
 
 **No performance claim is made.** The paper reports up to three orders of magnitude on
 its own benchmarks; this implementation has not been run against them. Doing so requires

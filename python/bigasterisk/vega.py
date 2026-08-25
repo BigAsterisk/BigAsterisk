@@ -84,13 +84,24 @@ class VegaRun:
         return self._j.steps()
 
     @property
+    def rewritten(self):
+        """Whether filters were moved later in the plan so more work stays reusable.
+
+        A normalisation, applied to every revision so that successive ones are in the
+        same shape. It preserves the answer, and costs nothing at execution time because
+        Catalyst pushes filters back down while optimising.
+        """
+        return self._j.rewritten()
+
+    @property
     def reuse_ratio(self):
         """Fraction of this query's parts that came from a previous revision."""
         return self._j.reuseRatio()
 
     def __repr__(self):
-        return "VegaRun(steps=%d, reused=%d, materialized=%d)" % (
-            self.steps, len(self.reused), len(self.materialized))
+        return "VegaRun(steps=%d, reused=%d, materialized=%d%s)" % (
+            self.steps, len(self.reused), len(self.materialized),
+            ", rewritten" if self.rewritten else "")
 
 
 class Vega:

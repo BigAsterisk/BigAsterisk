@@ -10,8 +10,9 @@ from the deepest point the two still share.
 From *Optimizing Interactive Development of Data-Intensive Applications* (SoCC 2016).
 
 !!! warning "Reimplemented from the paper"
-    No source for Vega survives — see [below](#no-artifact-survives). This is a
-    reimplementation, and one of the paper's two optimizations is not yet built.
+    No source for Vega survives — see [below](#no-artifact-survives). Both of the
+    paper's optimizations are implemented, but nothing here has been benchmarked against
+    its reported numbers.
 
 ## Using it
 
@@ -74,12 +75,46 @@ At most `maxMaterialized` parts (default 8) are held at once. The cap is deliber
 small: reuse across revisions comes overwhelmingly from the few parts nearest the
 sources. `clear()` releases everything.
 
-## Limitations
+## Moving an edit later
 
-- **An edit near the sources invalidates everything above it.** The paper's second
-  optimization — rewriting the dataflow to push a code modification as late as
-  possible, so an early edit does not spoil the whole prefix — is **not implemented**.
-  Changing a filter re-executes from that filter down.
+Reuse is worth only as much as the prefix two revisions share, and an edit near the
+sources destroys almost all of it. Change a filter written inside a derived table and
+everything above it — including the join computed last time — would have to be
+recomputed, even though the join itself did not change.
+
+So the filter is moved above the join instead:
+
+```
+as written                          rewritten
+Join                                Filter (amount > 200)
+  Filter (amount > 200)               Join
+    orders                              orders
+  customers                           customers
+```
+
+The join below is now identical to the one the previous revision materialized, and the
+edited filter applies to its result. `VegaRun.rewritten` reports when this happened.
+
+This is a **normalisation**, applied to every revision rather than only where it pays
+off — a revision can only reuse what the previous one stored, so both must be in the
+same shape. It runs only on queries containing a join, since without expensive work to
+get past there is nothing to gain.
+
+It is legal only where it cannot change the answer: through an inner join on either
+side, through an outer join on the preserved side only, through a projection that
+carries the filter's columns through unchanged, and through an alias. Never through an
+aggregation — filtering rows before grouping and filtering groups afterwards are
+different queries.
+
+Two things make this cheap. Catalyst pushes filters back down while optimising, so the
+rewritten query plans to the same physical plan and costs nothing at execution time. And
+a plain `WHERE` needs no help at all: an *analysed* plan already puts it above the join,
+in the order the query states.
+
+The cost is memory. The materialized join is the unfiltered one, which is larger — and
+is exactly why it survives an edit to the filter.
+
+## Limitations
 - **Memory.** Materialized parts live in the executors for the session, at
   `MEMORY_AND_DISK`. Call `clear()` when you move on.
 - **Spark Connect.** Reuse is decided against the driver-side analyzed plan, which a
@@ -87,6 +122,8 @@ sources. `clear()` releases everything.
 - **No performance claims.** The paper reports up to three orders of magnitude on its
   own benchmarks. This implementation has not been benchmarked against them, and no
   such claim is made for it here.
+- **Only filters move.** The rewrite relocates predicates. An edit to a projection or an
+  aggregate stays where it is.
 
 ## No artifact survives
 

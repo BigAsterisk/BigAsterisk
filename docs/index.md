@@ -83,14 +83,14 @@ is wrong.
 | [OptDebug](optdebug.md) | Ranks the operations behind a wrong result | **partial** |
 | [PerfDebug](perfdebug.md) | Attributes computation skew to the records causing it | **partial** |
 | [DeSQL](desql.md) | Step-through SQL debugging via query decomposition | **integrated** |
-| [Vega](vega.md) | Incremental re-execution across query revisions | **partial** |
+| [Vega](vega.md) | Incremental re-execution across query revisions | **integrated** |
 | [BigTest](testgen.md) | Symbolic execution over dataflow operators and UDFs | **partial** |
 | [BigFuzz](fuzzing.md) | Fuzzing via framework abstraction | **partial** |
 | [DepFuzz](fuzzing.md) | Co-dependence-aware mutation across joined tables | **integrated** |
 | [NaturalFuzz](fuzzing.md) | Splices existing rows and columns into realistic inputs | **integrated** |
 | [NaturalSym](testgen.md) | Distribution-aware symbolic test generation | **partial** |
 
-All thirteen now run: five are complete, eight reproduce part of their paper. Each
+All thirteen now run: six are complete, seven reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding. The
 upstream repository and commit each tool derives from is recorded in
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

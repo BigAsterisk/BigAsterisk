@@ -67,14 +67,14 @@ tool's page says which.
 | [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **partial** — per-record cost at a chosen point |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
-| [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **partial** — reimplemented; late-edit rewrite pending |
+| [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **integrated** — reimplemented from the paper |
 | [BigTest](docs/testgen.md) | Symbolic execution over dataflow operators and UDFs | application | **partial** — SQL predicates; UDF bytecode pending |
 | [BigFuzz](docs/fuzzing.md) | Fuzzing via framework abstraction | application | **partial** — mutation and guidance; abstraction pending |
 | [DepFuzz](docs/fuzzing.md) | Co-dependence-aware mutation, so inputs survive joins across tables | input data | **integrated** |
 | [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
 | [NaturalSym](docs/testgen.md) | Symbolic execution that generates natural, distribution-aware inputs | application | **partial** — natural witnesses; distributions pending |
 
-All thirteen now run: five are complete, eight reproduce part of their paper. Each
+All thirteen now run: six are complete, seven reproduce part of their paper. Each
 partial tool's page states plainly which part, and why the rest is outstanding — in
 several cases the missing piece is what required a forked Spark, a JDK 8 symbolic
 execution engine, or a benchmark suite that no longer exists. Every tool records the
