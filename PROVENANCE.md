@@ -346,18 +346,34 @@ codebases sharing 90% of their source — which is what the upstream artifacts a
 
 | Paper | Strategy | Status |
 |---|---|---|
-| NaturalFuzz | `natural` — splice values column-wise out of observed rows | **implemented** |
-| DepFuzz | `co-dependent` — joined columns draw from a shared pool, so rows survive the join | **implemented** |
+| NaturalFuzz | path vectors over the query's branch predicates | **implemented** |
+| NaturalFuzz | corpus minimisation to a bounded sample per distinct path vector | **implemented** |
+| NaturalFuzz | `natural` — interleaving: splice the deciding columns of a row that reaches an uncovered branch into another real row | **implemented** |
+| DepFuzz | branch-level influence: which columns of which dataset decide each branch | **implemented** |
+| DepFuzz | `co-dependent` — join equalities repaired jointly across the datasets they tie together | **implemented** |
 | BigFuzz | `random` — values drawn for the column's type, plus a boundary set | **implemented** |
 | BigFuzz | framework abstraction: run the dataflow's semantics without Spark | **implemented** |
 
-Coverage targets are the query's conditional branches — the same ones DeSQL exposes and
-OptDebug scores — and an input reaching a new branch is kept and mutated further, which
-is the guidance the DepFuzz and NaturalFuzz papers describe.
+Coverage targets are the query's conditional branches, and each conjunct of a compound
+condition is profiled separately — `a AND b` is one condition to the query but two
+decisions to a fuzzer, usually decided by different columns. An input reaching a new
+branch is kept and mutated further, which is the guidance both papers describe.
 
-The DepFuzz claim is reproduced and asserted by the suite: on a joined query, random
-mutation produces empty results far more often than co-dependent mutation, because a
-randomly generated join key essentially never matches.
+**Where the branch analysis comes from.** Both papers obtain it by taint analysis:
+instrumenting each dataflow operator *and each branch predicate*, then tracking
+`(dataset, column, row)` tags through user code. Under a SQL front end that is not an
+approximation — a predicate's attributes carry expression ids, a leaf relation's output
+carries the same ids, so the map from a branch to the columns that decide it, and from a
+join to the columns it ties together, reads exactly off the analyzed plan
+(`BranchProfiler`).
+
+Both claims are reproduced and asserted by the suite:
+
+- *NaturalFuzz.* On `WHERE amount > 90000 AND cid = 'c1'`, where no seed row satisfies
+  both conjuncts, interleaving covers all four branch targets and drawing values covers
+  two — reaching the conjunction requires one row's `amount` with another's `cid`.
+- *DepFuzz.* On a joined query, mutation that ignores co-dependence produces empty
+  results far more often, because a freely mutated join key essentially never matches.
 
 Deliberate differences from the upstream implementations:
 
@@ -376,8 +392,13 @@ Deliberate differences from the upstream implementations:
   a mutation operator per benchmark program (`GenCommuteTypeData`, `GenFlightData`, and
   so on). Under a SQL front end the input is a table with a schema, so the schema drives
   generation and no per-benchmark code exists.
-- **Co-dependence is matched by column name** rather than by tracking which code segment
-  reads which dataset region. Join equalities come straight out of the analyzed plan.
+- **Influence is plan-level, so it stops at a UDF.** Which columns decide a `WHERE` or a
+  `CASE` is exact, and exact is stronger than the upstream taint analysis, which is
+  necessarily conservative. What plan analysis cannot see is a branch *inside* a UDF —
+  the same bytecode boundary FlowDebug and BigTest reach. Such an operator is profiled as
+  though it had no branches.
+- **Co-dependence covers join equalities.** A join on a range or an inequality is left to
+  the mutation strategy rather than repaired.
 - **Failures are exceptions, not oracle violations.** A campaign finds inputs that make
   the query throw; checking that an answer is *correct* is BigSift's and OptDebug's job.
 

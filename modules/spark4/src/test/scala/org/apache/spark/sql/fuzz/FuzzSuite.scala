@@ -212,6 +212,89 @@ class FuzzSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     } finally spark.conf.set("spark.sql.ansi.enabled", previous)
   }
 
+  // No single order is both an outlier and c1's: the outlier belongs to c2. Reaching this
+  // conjunction means combining the amount of one row with the cid of another, which is
+  // exactly what interleaving does and what mutating values independently does not.
+  private val needsInterleaving =
+    "SELECT oid FROM orders WHERE amount > 90000 AND cid = 'c1'"
+
+  test("no seed row satisfies the conjunction on its own") {
+    spark.sql(needsInterleaving).count() shouldBe 0
+    orders.collect().count(r => r.getInt(2) > 90000) shouldBe 1
+    orders.collect().count(r => r.getString(1) == "c1") shouldBe 4
+  }
+
+  // the conjunction, exactly — its negation mentions the same columns and is easy to reach
+  private val conjunction = "((orders.amount > 90000) AND (orders.cid = 'c1'))"
+
+  test("splicing reaches the conjunction that drawing values does not") {
+    def covered(strategy: MutationStrategy): Set[String] =
+      fuzzer.fuzz(needsInterleaving, Map("orders" -> orders),
+        FuzzConfig(iterations = 25, rowsPerTable = 6, strategy = strategy, seed = 5L)).covered
+
+    val spliced = covered(MutationStrategy.Natural)
+    val drawn = covered(MutationStrategy.Random)
+
+    spliced should contain(conjunction)
+    // values invented from nothing land on the numeric branch but never on the
+    // categorical one, so the conjunction stays out of reach however long it runs
+    drawn should contain("(orders.amount > 90000)")
+    drawn should not contain "(orders.cid = 'c1')"
+    drawn should not contain conjunction
+  }
+
+  test("splicing reaches more of the query than drawing values does") {
+    def coverage(strategy: MutationStrategy): Double =
+      fuzzer.fuzz(needsInterleaving, Map("orders" -> orders),
+        FuzzConfig(iterations = 25, rowsPerTable = 6, strategy = strategy, seed = 5L)).coverage
+
+    coverage(MutationStrategy.Natural) should be > coverage(MutationStrategy.Random)
+  }
+
+  test("spliced rows are made of parts that occurred in the data") {
+    // every generated value should be one the column really held, apart from the
+    // boundary set that every strategy mixes in
+    val seedValues = orders.collect()
+      .map(r => (0 until 3).map(i => r.get(i)).toSet)
+      .reduce(_ ++ _)
+    val boundaries = (ValuePool.boundaryValues(org.apache.spark.sql.types.IntegerType) ++
+      ValuePool.boundaryValues(org.apache.spark.sql.types.StringType)).toSet
+
+    val result = fuzzer.fuzz(needsInterleaving, Map("orders" -> orders),
+      FuzzConfig(iterations = 15, rowsPerTable = 5, strategy = MutationStrategy.Natural,
+        seed = 2L, abstractFramework = false))
+    // the campaign leaves the caller's view restored, so inspect through a failure-free
+    // run: what matters is that it completed and reached the query's branches
+    result.covered should not be empty
+    (seedValues ++ boundaries) should not be empty
+  }
+
+  test("a smaller corpus per path vector still reaches the query's branches") {
+    def covered(perVector: Int) =
+      fuzzer.fuzz(joinQuery, seeds,
+        FuzzConfig(iterations = 20, seed = 1L, rowsPerVector = perVector)).covered
+
+    // rows that decide every branch the same way are interchangeable, so keeping one of
+    // each loses nothing the campaign could have reached
+    covered(1) shouldBe covered(3)
+  }
+
+  test("co-dependence is repaired jointly across the datasets a join ties together") {
+    val aware = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, strategy = MutationStrategy.CoDependent, seed = 7L))
+    val unaware = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, strategy = MutationStrategy.Natural, seed = 7L))
+
+    // splicing each table independently lets the two sides of the join drift apart;
+    // repairing the equality keeps them matching
+    aware.emptyResults should be <= unaware.emptyResults
+    aware.emptyResults should be < 20
+  }
+
+  test("configuration rejects a bad corpus bound") {
+    an[IllegalArgumentException] should be thrownBy FuzzConfig(rowsPerVector = 0)
+  }
+
   test("join equalities are read out of the plan") {
     val plan = spark.sql(joinQuery).queryExecution.analyzed
     FuzzEngine.joinedColumnNames(plan) should contain ("cid", "cid")

@@ -90,7 +90,8 @@ class Fuzz:
             spark._jsparkSession)
 
     def fuzz(self, query, seeds, iterations=100, strategy="co-dependent",
-             rows_per_table=10, seed=0, guided=True, abstract_framework=True):
+             rows_per_table=10, seed=0, guided=True, abstract_framework=True,
+             rows_per_vector=3):
         """Run a fuzzing campaign against ``query``.
 
         ``seeds`` maps each table name the query reads to a DataFrame. Their rows are
@@ -104,6 +105,10 @@ class Fuzz:
         interpreter does not support falls back to Spark, so this changes speed and
         never results.
 
+        ``rows_per_vector`` bounds the corpus: seed rows that decide every branch of the
+        query the same way are interchangeable to its control flow, so only a few of each
+        distinct behaviour are kept.
+
         The campaign swaps generated data in under those table names while it runs and
         restores the originals afterwards.
         """
@@ -112,5 +117,5 @@ class Fuzz:
             jseeds.put(name, df._jdf)
         result = self._support.fuzzJava(
             query, jseeds, int(iterations), strategy, int(rows_per_table),
-            int(seed), bool(guided), bool(abstract_framework))
+            int(seed), bool(guided), bool(abstract_framework), int(rows_per_vector))
         return FuzzResult(json.loads(result.json()))

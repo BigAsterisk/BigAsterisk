@@ -62,6 +62,11 @@ object MutationStrategy {
  * @param guided       when true, a candidate that reaches a branch nothing had reached
  *                     is kept and mutated further; when false every candidate is drawn
  *                     from the seed data alone
+ * @param rowsPerVector how many seed rows to keep per distinct path vector when the
+ *                     corpus is minimised. Rows that decide every branch the same way
+ *                     are interchangeable to the query's control flow, so keeping a few
+ *                     of each preserves every reachable behaviour while cutting what has
+ *                     to be searched.
  * @param abstractFramework when true, iterations are evaluated by interpreting the
  *                     query's plan over in-memory rows instead of running a Spark job.
  *                     The operator semantics are Spark's either way; what goes is the
@@ -77,9 +82,11 @@ case class FuzzConfig(
     rowsPerTable: Int = 10,
     seed: Long = 0L,
     guided: Boolean = true,
-    abstractFramework: Boolean = true) {
+    abstractFramework: Boolean = true,
+    rowsPerVector: Int = 3) {
   require(iterations >= 0, s"iterations must not be negative, got $iterations")
   require(rowsPerTable > 0, s"rowsPerTable must be positive, got $rowsPerTable")
+  require(rowsPerVector > 0, s"rowsPerVector must be positive, got $rowsPerVector")
 }
 
 /**
@@ -214,12 +221,13 @@ trait FuzzSupport {
       rowsPerTable: Int,
       seed: Long,
       guided: Boolean,
-      abstractFramework: Boolean): FuzzResult = {
+      abstractFramework: Boolean,
+      rowsPerVector: Int): FuzzResult = {
     import scala.jdk.CollectionConverters._
     fuzz(
       query,
       seeds.asScala.toMap,
       FuzzConfig(iterations, MutationStrategy.byName(strategy), rowsPerTable, seed, guided,
-        abstractFramework))
+        abstractFramework, rowsPerVector))
   }
 }

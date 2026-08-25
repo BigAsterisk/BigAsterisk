@@ -46,32 +46,85 @@ for failure in result.failures:
 generated values are drawn from. The campaign swaps generated data in under those table
 names while it runs, and **restores the originals afterwards**.
 
+## What the fuzzer knows about the query
+
+Before generating anything, the campaign works out **which columns of which table decide
+each branch**. Both splicing strategies stand on this: mutate the columns that decide a
+branch and the query's control flow moves; mutate the rest and nothing happens.
+
+The published tools obtain this by taint analysis — instrumenting each branch predicate
+and tracking `(dataset, column, row)` tags through the program. Under a SQL front end it
+is not an approximation at all: a predicate's attributes carry expression ids, a leaf
+relation's output carries the same ids, and the mapping reads straight off the analyzed
+plan.
+
+Two things fall out of it.
+
+**Path vectors.** Every seed row is evaluated against every branch, giving it one bit
+per branch — `1` where it satisfies the branch, `0` where it does not, `-` where the
+branch belongs to another table and this row has no say. That bit string is the row's
+path vector.
+
+```
+orders                     amount > 90000   cid = 'c1'   both
+o1  c1  420                      0              1          0     ->  "010"
+o8  c2  99999                    1              0          0     ->  "100"
+```
+
+Two rows with the same vector are interchangeable as far as the query's control flow is
+concerned, so the corpus is **minimised** to a bounded sample of each distinct vector —
+`rowsPerVector`, three by default. A hundred rows that all take the same path through the
+query are worth no more to a fuzzer than two of them, and cost fifty times as much to
+search.
+
+**Co-dependence.** A join equality makes two datasets dependent: mutate one side freely
+and no row survives, the query returns nothing, and the iteration teaches the campaign
+nothing. Equalities are resolved through expression ids, so a join between `orders.cid`
+and `customers.cid` is recognised as one constraint, while two unrelated columns that
+merely share a name are not.
+
 ## The three strategies
 
-| Strategy | Where a value comes from | Paper |
+| Strategy | How a row is built | Paper |
 |---|---|---|
-| `random` | drawn at random for the column's type | BigFuzz |
-| `natural` | spliced column-wise out of rows already seen | NaturalFuzz |
-| `co-dependent` | as `natural`, but joined columns share one pool | DepFuzz |
+| `random` | every value drawn for the column's type, from nothing | BigFuzz |
+| `natural` | a real row, with the deciding columns spliced in from another real row | NaturalFuzz |
+| `co-dependent` | as `natural`, then join equalities repaired across tables | DepFuzz |
 
 **`random`** is the baseline: cheap, and good at finding crashes on malformed values.
 It is poor at anything behind a join, because a randomly generated key essentially never
-matches one on the other side.
+matches one on the other side — and poor at categorical branches, because an invented
+string essentially never equals `'c1'`.
 
-**`natural`** splices values column-wise from observed data, so every value is one that
-genuinely occurred in that column — the right formats, plausible magnitudes — while the
-*combinations* are new. Generated rows look like data rather than like noise.
+**`natural`** builds a candidate by **interleaving**: take a row from the corpus, pick a
+branch nothing has covered yet, find a donor row whose path vector satisfies that branch,
+and copy the donor's *deciding columns* into the base row. Every value in the result is
+one that genuinely occurred in that column — the right formats, plausible magnitudes —
+while the combination is new, and aimed at coverage rather than at random.
 
-**`co-dependent`** is the default. A join makes two columns of two tables dependent:
-mutate one freely and the rows stop matching, the query returns nothing, and the campaign
-learns nothing. Join equalities are read out of the analyzed plan, and the columns they
-tie together draw from a shared pool.
+This is what a per-column mutator cannot do. On
+
+```sql
+SELECT oid FROM orders WHERE amount > 90000 AND cid = 'c1'
+```
+
+no seed row satisfies both conjuncts: the one large order belongs to `c2`, and `c1`'s
+orders are small. Reaching the conjunction means combining one row's `amount` with
+another's `cid`. Each conjunct is profiled separately for exactly this reason — `a AND b`
+is one condition to the query but two decisions to a fuzzer, usually decided by different
+columns. The suite pins the outcome: with the same budget, splicing covers all four
+branch targets of that query and drawing values covers two.
+
+**`co-dependent`** is the default. It splices as `natural` does, then **repairs** every
+join equality the plan declares: a shared value is written into each table the equality
+ties together, so the generated tables still join. Mutation stays joint across
+co-dependent regions instead of drifting the two sides apart.
 
 The difference is measurable, and the suite asserts it: on a joined query, `random`
 produces empty results far more often than `co-dependent` does.
 
-Whatever the strategy, one value in ten comes from a **boundary set** — zero, negative
-one, `Int.MaxValue`, the empty string, `NaN`, a 256-character string. Plausible-looking
+Whatever the strategy, one candidate in ten is nudged onto a **boundary value** — zero,
+negative one, `Int.MaxValue`, the empty string, `NaN`, a 256-character string. Plausible
 data alone will not find the crash on an empty string or an overflowing sum. With ANSI
 mode on, this is what finds an integer overflow in `amount + amount`.
 
@@ -137,10 +190,12 @@ A campaign is reproducible: same `seed`, same result.
   correct but slow. Widening the subset widens the speedup.
 - **Failures are exceptions, not oracles.** A campaign finds inputs that make the query
   *throw*. It does not check that a query returns the right answer.
-- **Co-dependence is matched by column name.** A join between `orders.cid` and
-  `customers.cid` pools both, which is right. Two unrelated columns that happen to share
-  a name and appear in some join condition would also pool, which is conservative rather
-  than wrong — it widens the pool, it does not break the join.
+- **Branch influence is plan-level.** Which columns decide a `WHERE` or a `CASE` is
+  exact. Which columns decide a branch *inside a UDF* is not visible without bytecode
+  analysis, so a query whose control flow hides in user code is profiled as though that
+  operator had no branches.
+- **Equalities only.** Co-dependence is repaired for join equalities. A join on a range
+  or an inequality is left to the mutation strategy.
 - **Spark Connect.** Branch coverage is read from the driver-side analyzed plan, which a
   Connect client does not hold. Classic sessions only.
 

@@ -73,13 +73,33 @@ class FuzzEngine extends FuzzSupport {
         LocalDataflow.leafTables(analyzed, schemas).map(analyzed -> _)
       }
 
+    // Profile once: which regions decide which branch, what each seed row does at each
+    // branch, and which datasets the joins tie together. Both splicing strategies work
+    // from this; the random strategy ignores it.
+    val profile: Option[Profile] =
+      if (config.strategy == MutationStrategy.Random) None
+      else {
+        val analyzed = spark.sql(query).queryExecution.analyzed
+        LocalDataflow.leafTables(analyzed, schemas).map { leafToTable =>
+          val influences = BranchProfiler.influences(analyzed, targets, leafToTable)
+          val reduced = seeds.map { case (table, df) =>
+            val rows = df.collect().toSeq
+            val vectors = BranchProfiler.pathVectors(table, rows, df.schema, influences)
+            // keep a sample per distinct path vector: rows that decide every branch the
+            // same way are interchangeable, so the rest is search space for nothing
+            table -> BranchProfiler.minimise(rows, vectors, config.rowsPerVector)
+          }
+          Profile(influences, reduced, BranchProfiler.joinConstraints(analyzed, leafToTable))
+        }
+      }
+
     // The corpus starts from the seed rows and grows with inputs that found new ground.
     val corpus = mutable.ArrayBuffer(seeds.map { case (n, df) => n -> df.collect().toSeq }.toMap)
 
     withRestoredViews(spark, seeds) {
       var i = 0
       while (i < config.iterations) {
-        val candidate = generate(schemas, pools, corpus, config, random)
+        val candidate = generate(schemas, pools, corpus, config, random, profile, covered)
         iterationsRun += 1
 
         val outcome = abstraction.flatMap { case (plan, leafToTable) =>
@@ -173,29 +193,196 @@ class FuzzEngine extends FuzzSupport {
       spark.createDataFrame(rows.asJava, schemas(name)).createOrReplaceTempView(name)
     }
 
-  /** One candidate input: `rowsPerTable` rows for every table. */
+  /**
+   * What profiling learned about the query: which regions decide which branch, the
+   * corpus reduced to a sample per distinct path vector, and the join equalities that
+   * tie datasets together.
+   */
+  private case class Profile(
+      influences: Seq[BranchProfiler.Influence],
+      corpus: Map[String, Seq[(Row, BranchProfiler.PathVector)]],
+      joins: Seq[Map[String, Set[String]]])
+
+  /**
+   * One candidate input, built by splicing rather than by drawing values independently.
+   *
+   * This is where the strategies part company:
+   *
+   *   - [[MutationStrategy.Random]] draws each value for its column's type.
+   *   - [[MutationStrategy.Natural]] takes a row from the corpus and splices into it the
+   *     columns that decide a branch nothing has reached yet, taken from a row that does
+   *     reach it. The result is made only of parts that occurred in real data, and it is
+   *     aimed at new coverage rather than at random.
+   *   - [[MutationStrategy.CoDependent]] does the same, then repairs the join equalities
+   *     across datasets so the spliced rows still match — mutating co-dependent regions
+   *     jointly rather than one side at a time.
+   */
   private def generate(
       schemas: Map[String, StructType],
       pools: Map[(String, String), ValuePool],
       corpus: mutable.ArrayBuffer[Map[String, Seq[Row]]],
       config: FuzzConfig,
-      random: Random): Map[String, Seq[Row]] = {
+      random: Random,
+      profile: Option[Profile],
+      covered: collection.Set[String]): Map[String, Seq[Row]] = {
 
     val basis = corpus(random.nextInt(corpus.length))
 
-    schemas.map { case (table, schema) =>
+    val generated = schemas.map { case (table, schema) =>
       val rows = (0 until config.rowsPerTable).map { _ =>
-        val values = schema.fields.map { field =>
-          value(table, field.name, field.dataType, pools, basis.get(table), schema,
-            config.strategy, random)
+        (config.strategy, profile) match {
+          case (MutationStrategy.Random, _) | (_, None) =>
+            drawRow(table, schema, pools, basis.get(table), config.strategy, random)
+          case (_, Some(p)) =>
+            spliceRow(table, schema, p, covered, pools, basis.get(table), config, random)
         }
-        Row.fromSeq(values.toIndexedSeq)
       }
       table -> rows
     }
+
+    (config.strategy, profile) match {
+      case (MutationStrategy.CoDependent, Some(p)) => repairJoins(generated, schemas, p, random)
+      case _                                       => generated
+    }
   }
 
-  /** One generated value, which is where the three strategies part company. */
+  /** A row drawn value by value, with no reference to what decides anything. */
+  private def drawRow(
+      table: String,
+      schema: StructType,
+      pools: Map[(String, String), ValuePool],
+      basis: Option[Seq[Row]],
+      strategy: MutationStrategy,
+      random: Random): Row =
+    Row.fromSeq(schema.fields.map { field =>
+      value(table, field.name, field.dataType, pools, basis, schema, strategy, random)
+    }.toIndexedSeq)
+
+  /**
+   * A row built by interleaving: a base row from the corpus, with the columns that decide
+   * some branch spliced in from a row that reaches it.
+   *
+   * Preference goes to a branch nothing has covered yet, which is what turns splicing
+   * from a way of making plausible rows into a way of making progress. When everything is
+   * covered, any branch will do, so the corpus keeps moving.
+   */
+  private def spliceRow(
+      table: String,
+      schema: StructType,
+      profile: Profile,
+      covered: collection.Set[String],
+      pools: Map[(String, String), ValuePool],
+      basis: Option[Seq[Row]],
+      config: FuzzConfig,
+      random: Random): Row = {
+
+    val rows = profile.corpus.getOrElse(table, Seq.empty)
+    if (rows.isEmpty) {
+      return drawRow(table, schema, pools, basis, config.strategy, random)
+    }
+
+    val base = rows(random.nextInt(rows.length))._1
+    val decidedHere = profile.influences.zipWithIndex.filter {
+      case (influence, _) => influence.columns.contains(table)
+    }
+
+    if (decidedHere.isEmpty) {
+      // Nothing to aim at — the query has no branch this table decides. Splicing still
+      // has to produce something new, so mix a random subset of columns from another row
+      // and lean harder on the boundary set, which is the only remaining source of
+      // interesting behaviour. Returning the base row unchanged here silently stopped a
+      // campaign from ever finding an arithmetic overflow.
+      val donor = rows(random.nextInt(rows.length))._1
+      val columns = schema.fields.map(_.name).filter(_ => random.nextBoolean()).toSet
+      val spliced = splice(base, donor, columns, schema)
+      return if (random.nextInt(3) == 0) perturb(spliced, schema, random) else spliced
+    }
+
+    val uncovered = decidedHere.filterNot { case (influence, _) => covered.contains(influence.condition) }
+    val (influence, index) =
+      if (uncovered.nonEmpty) uncovered(random.nextInt(uncovered.length))
+      else decidedHere(random.nextInt(decidedHere.length))
+
+    // a donor that makes this branch true; if none does, splice from anywhere so the
+    // candidate still differs from its base
+    val satisfying = rows.filter(_._2.bits.lift(index).flatten.contains(true))
+    val donor =
+      if (satisfying.nonEmpty) satisfying(random.nextInt(satisfying.length))._1
+      else rows(random.nextInt(rows.length))._1
+
+    val spliced = splice(base, donor, influence.columns.getOrElse(table, Set.empty), schema)
+
+    // a tenth of values still come from the boundary set, whatever the strategy: no
+    // amount of real-looking data finds the crash on an empty string or an overflow
+    if (random.nextInt(10) == 0) perturb(spliced, schema, random) else spliced
+  }
+
+  /** Takes `columns` from `donor` and everything else from `base`. */
+  private def splice(base: Row, donor: Row, columns: Set[String], schema: StructType): Row =
+    Row.fromSeq(schema.fields.zipWithIndex.map { case (field, i) =>
+      if (columns.contains(field.name)) donor.get(i) else base.get(i)
+    }.toIndexedSeq)
+
+  /** Replaces one column with a boundary value. */
+  private def perturb(row: Row, schema: StructType, random: Random): Row = {
+    val i = random.nextInt(schema.fields.length)
+    val boundaries = ValuePool.boundaryValues(schema.fields(i).dataType)
+    if (boundaries.isEmpty) row
+    else Row.fromSeq(schema.fields.indices.map { j =>
+      if (j == i) boundaries(random.nextInt(boundaries.length)) else row.get(j)
+    })
+  }
+
+  /**
+   * Repairs the join equalities across the generated datasets.
+   *
+   * Splicing each table independently is not enough when a join ties them together: the
+   * two sides drift apart, nothing matches, and the query returns nothing. For each
+   * equality a value is chosen once and written into every table it links, so the
+   * generated rows still join — the co-dependent regions mutated jointly rather than one
+   * at a time.
+   */
+  private def repairJoins(
+      generated: Map[String, Seq[Row]],
+      schemas: Map[String, StructType],
+      profile: Profile,
+      random: Random): Map[String, Seq[Row]] = {
+    if (profile.joins.isEmpty) return generated
+
+    var out = generated
+    profile.joins.foreach { constraint =>
+      // draw the shared value from what the linked columns actually contain
+      val candidates = constraint.toSeq.flatMap { case (table, columns) =>
+        val schema = schemas(table)
+        out.getOrElse(table, Seq.empty).flatMap { row =>
+          columns.toSeq.flatMap(c => Option(row.get(schema.fieldIndex(c))))
+        }
+      }.distinct
+      if (candidates.nonEmpty) {
+        val shared = candidates(random.nextInt(candidates.length))
+        out = out.map { case (table, rows) =>
+          constraint.get(table) match {
+            case None => table -> rows
+            case Some(columns) =>
+              val schema = schemas(table)
+              // repair a prefix rather than every row, so the campaign still explores
+              // rows that do not match
+              val repaired = rows.zipWithIndex.map { case (row, i) =>
+                if (i % 2 == 0) {
+                  Row.fromSeq(schema.fields.zipWithIndex.map { case (field, j) =>
+                    if (columns.contains(field.name)) shared else row.get(j)
+                  }.toIndexedSeq)
+                } else row
+              }
+              table -> repaired
+          }
+        }
+      }
+    }
+    out
+  }
+
+  /** One generated value, for the strategies that draw rather than splice. */
   private def value(
       table: String,
       column: String,
@@ -216,13 +403,10 @@ class FuzzEngine extends FuzzSupport {
     strategy match {
       case MutationStrategy.Random =>
         ValuePool.randomValue(dataType, random)
-
-      case MutationStrategy.Natural | MutationStrategy.CoDependent =>
-        // pools already encode co-dependence when the strategy asked for it
+      case _ =>
         pools.get((table, column)) match {
           case Some(pool) if !pool.isEmpty => pool.pick(random)
           case _ =>
-            // no observed values for this column: fall back rather than emit only nulls
             basis.flatMap { rows =>
               if (rows.isEmpty) None
               else {
@@ -284,9 +468,26 @@ class FuzzEngine extends FuzzSupport {
     DeSqlEngine
       .stepNodes(spark.sql(query).queryExecution.analyzed)
       .flatMap { node =>
-        val conditions = DeSqlEngine.branchConditions(node.plan)
-        if (conditions.isEmpty) None else Some(node.plan.children.head -> conditions)
+        val conditions = DeSqlEngine.branchConditions(node.plan).flatMap(refine)
+        if (conditions.isEmpty) None else Some(node.plan.children.head -> conditions.distinct)
       }
+
+  /**
+   * A condition and the conjuncts it is made of.
+   *
+   * `WHERE a AND b` is one condition to the query but two decisions to a fuzzer, and they
+   * are usually decided by different columns. Profiling each conjunct separately is what
+   * lets splicing combine a row that satisfies one with a row that satisfies the other —
+   * a combination that mutating either alone would essentially never produce.
+   */
+  private def refine(condition: Expression): Seq[Expression] = {
+    def conjuncts(e: Expression): Seq[Expression] = e match {
+      case org.apache.spark.sql.catalyst.expressions.And(l, r) => conjuncts(l) ++ conjuncts(r)
+      case other                                               => Seq(other)
+    }
+    val parts = conjuncts(condition)
+    if (parts.size > 1) condition +: parts else parts
+  }
 
   /**
    * Which branches the current data reaches.
