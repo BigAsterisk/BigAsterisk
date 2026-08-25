@@ -56,13 +56,36 @@ jobs:
       - name: Build the site
         run: mkdocs build --strict
 
-      # `enablement` turns Pages on through the API when it is off, so a fresh clone of
-      # this repository publishes without anyone visiting the settings page first.
-      - uses: actions/configure-pages@v5
+      # `enablement` turns Pages on through the API when it is off. An organization
+      # can forbid that, and a repository whose owner has never opted into Pages cannot
+      # be published to at all — neither is a fault in the documentation, which has
+      # already been built strictly by this point, so publication is allowed to be
+      # skipped with a warning rather than failing the workflow on every push.
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
         with:
           enablement: true
+
+      - name: Explain a skipped publication
+        if: steps.pages.outcome == 'failure'
+        run: |
+          echo "::warning title=Documentation not published::The site built cleanly, but GitHub Pages is not enabled for this repository."
+          {
+            echo "### Documentation built, not published"
+            echo
+            echo "\`mkdocs build --strict\` succeeded and the API reference was generated,"
+            echo "but GitHub Pages is not enabled here, so there was nowhere to publish to."
+            echo
+            echo "Enable it once under **Settings → Pages → Build and deployment**, with"
+            echo "**Source: GitHub Actions**. The next push to \`main\` will publish."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-pages-artifact@v3
+        if: steps.pages.outcome == 'success'
         with:
           path: site
+
       - id: deploy
+        if: steps.pages.outcome == 'success'
         uses: actions/deploy-pages@v4
