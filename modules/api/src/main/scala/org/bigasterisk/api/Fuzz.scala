@@ -62,6 +62,9 @@ object MutationStrategy {
  * @param guided       when true, a candidate that reaches a branch nothing had reached
  *                     is kept and mutated further; when false every candidate is drawn
  *                     from the seed data alone
+ * @param keepSamples  how many generated inputs to keep on the result, so a caller can
+ *                     see what the campaign actually fed the query. Inputs that reached
+ *                     new coverage are preferred; 0 keeps none.
  * @param rowsPerVector how many seed rows to keep per distinct path vector when the
  *                     corpus is minimised. Rows that decide every branch the same way
  *                     are interchangeable to the query's control flow, so keeping a few
@@ -83,10 +86,12 @@ case class FuzzConfig(
     seed: Long = 0L,
     guided: Boolean = true,
     abstractFramework: Boolean = true,
-    rowsPerVector: Int = 3) {
+    rowsPerVector: Int = 3,
+    keepSamples: Int = 3) {
   require(iterations >= 0, s"iterations must not be negative, got $iterations")
   require(rowsPerTable > 0, s"rowsPerTable must be positive, got $rowsPerTable")
   require(rowsPerVector > 0, s"rowsPerVector must be positive, got $rowsPerVector")
+  require(keepSamples >= 0, s"keepSamples must not be negative, got $keepSamples")
 }
 
 /**
@@ -105,6 +110,39 @@ case class FuzzFailure(iteration: Int, error: String, tables: Map[String, Seq[Ro
 }
 
 /**
+ * One input the campaign generated, kept so a caller can see what it is being fed.
+ *
+ * A campaign that reports only coverage and crash counts asks to be taken on trust. These
+ * are the actual rows, so "natural values spliced out of real ones" and "values invented
+ * for the column's type" are things you can look at rather than claims.
+ *
+ * @param iteration  when it was generated
+ * @param tables     the generated rows, by table name
+ * @param reachedNew whether it reached a branch nothing had reached before — the inputs
+ *                   a guided campaign keeps and mutates further
+ * @param empty      whether the query returned nothing for it
+ *
+ * @group fuzz
+ */
+case class FuzzSample(
+    iteration: Int,
+    tables: Map[String, Seq[Row]],
+    reachedNew: Boolean,
+    empty: Boolean) {
+
+  override def toString: String = {
+    val note =
+      (if (reachedNew) Seq("reached new coverage") else Nil) ++
+        (if (empty) Seq("produced no output") else Nil)
+    val suffix = if (note.isEmpty) "" else s"  (${note.mkString(", ")})"
+    s"iteration $iteration$suffix\n" +
+      tables.map { case (t, rows) =>
+        s"  $t: ${rows.take(4).mkString(", ")}${if (rows.size > 4) s", … ${rows.size} rows" else ""}"
+      }.mkString("\n")
+  }
+}
+
+/**
  * What a fuzzing campaign found.
  *
  * @param iterations      candidates actually run
@@ -113,6 +151,7 @@ case class FuzzFailure(iteration: Int, error: String, tables: Map[String, Seq[Ro
  * @param totalBranches   branches the query has
  * @param emptyResults    candidates that produced no output rows at all — the symptom
  *                        of inputs that cannot get past a join
+ * @param samples         a few of the generated inputs, kept so they can be looked at
  * @param abstracted      iterations evaluated without Spark. The rest fell back, either
  *                        because the abstraction was switched off or because the query
  *                        left the interpreter's supported set.
@@ -125,7 +164,8 @@ case class FuzzResult(
     covered: Set[String],
     totalBranches: Int,
     emptyResults: Int,
-    abstracted: Int = 0) {
+    abstracted: Int = 0,
+    samples: Seq[FuzzSample] = Seq.empty) {
 
   /** Fraction of iterations that avoided Spark entirely. */
   def abstractionRatio: Double =
@@ -165,10 +205,18 @@ case class FuzzResult(
       s"""{"iteration":${f.iteration},"error":${quote(f.error)},"tables":{$tables}}"""
     }.mkString(",")
 
+    val samplesJson = samples.map { sample =>
+      val tables = sample.tables.map { case (name, rows) =>
+        s"${quote(name)}:[${rows.map(r => quote(r.toString)).mkString(",")}]"
+      }.mkString(",")
+      s"""{"iteration":${sample.iteration},"reachedNew":${sample.reachedNew},""" +
+        s""""empty":${sample.empty},"tables":{$tables}}"""
+    }.mkString(",")
+
     s"""{"iterations":$iterations,"totalBranches":$totalBranches,""" +
       s""""emptyResults":$emptyResults,"coverage":$coverage,"abstracted":$abstracted,""" +
       s""""covered":[${covered.toSeq.sorted.map(quote).mkString(",")}],""" +
-      s""""failures":[$failuresJson]}"""
+      s""""failures":[$failuresJson],"samples":[$samplesJson]}"""
   }
 }
 
@@ -222,12 +270,13 @@ trait FuzzSupport {
       seed: Long,
       guided: Boolean,
       abstractFramework: Boolean,
-      rowsPerVector: Int): FuzzResult = {
+      rowsPerVector: Int,
+      keepSamples: Int): FuzzResult = {
     import scala.jdk.CollectionConverters._
     fuzz(
       query,
       seeds.asScala.toMap,
       FuzzConfig(iterations, MutationStrategy.byName(strategy), rowsPerTable, seed, guided,
-        abstractFramework, rowsPerVector))
+        abstractFramework, rowsPerVector, keepSamples))
   }
 }

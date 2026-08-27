@@ -5,7 +5,7 @@
 
 **A unified debugging and testing platform for Apache Spark.**
 
-!!! tip "See it work first"
+!!! tip "Quick Demo"
 
     [**A worked example**](notebook.md) — a quarter of a million flights, three joins,
     two Python UDFs, one planted fault, and thirteen tools narrowing it down. Real

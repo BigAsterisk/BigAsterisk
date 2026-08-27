@@ -96,6 +96,11 @@ class FuzzEngine extends FuzzSupport {
     // The corpus starts from the seed rows and grows with inputs that found new ground.
     val corpus = mutable.ArrayBuffer(seeds.map { case (n, df) => n -> df.collect().toSeq }.toMap)
 
+    // A few of the generated inputs, kept so a caller can look at them. Inputs that
+    // reached new coverage are the interesting ones — they are what a guided campaign
+    // keeps — so they displace the merely-early ones once the budget is full.
+    val samples = mutable.ArrayBuffer.empty[FuzzSample]
+
     withRestoredViews(spark, seeds) {
       var i = 0
       while (i < config.iterations) {
@@ -122,13 +127,23 @@ class FuzzEngine extends FuzzSupport {
         val fresh = reached -- covered
         covered ++= reached
         if (config.guided && fresh.nonEmpty) corpus += candidate
+
+        if (config.keepSamples > 0) {
+          val sample = FuzzSample(i, candidate, fresh.nonEmpty, empty)
+          if (samples.size < config.keepSamples) samples += sample
+          else if (fresh.nonEmpty) {
+            // replace an ordinary sample with one that found new ground
+            val ordinary = samples.indexWhere(!_.reachedNew)
+            if (ordinary >= 0) samples(ordinary) = sample
+          }
+        }
         i += 1
       }
     }
 
     FuzzResult(
       iterationsRun, failures.toSeq, covered.toSet, targets.map(_._2.size).sum, empties,
-      abstracted)
+      abstracted, samples.toSeq)
   }
 
   /** What one iteration produced: a failure message, whether it was empty, and coverage. */

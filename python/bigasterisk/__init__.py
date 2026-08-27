@@ -43,7 +43,7 @@ from bigasterisk.vega import Vega, VegaRun
 from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
 from bigasterisk.perfdebug import PerfDebug, PerfProfile, RecordCost
 from bigasterisk.influence import Influence, InfluenceProvenance
-from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure
+from bigasterisk.fuzz import Fuzz, FuzzResult, FuzzFailure, FuzzSample
 from bigasterisk.testgen import TestGen, TestSuite, TestCase
 from bigasterisk.crashculprit import CrashCulpritGuards, CrashCulprit, CulpritRecord
 from bigasterisk.breakpoint import Breakpoints, Breakpoint
@@ -84,6 +84,7 @@ __all__ = [
     "Fuzz",
     "FuzzResult",
     "FuzzFailure",
+    "FuzzSample",
     "testgen",
     "TestGen",
     "TestSuite",

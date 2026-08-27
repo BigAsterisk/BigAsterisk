@@ -169,6 +169,45 @@ say so rather than guess.
 Set `abstractFramework = false` (`abstract_framework=False` in Python) to run everything
 through Spark. `FuzzResult.abstracted` reports how many iterations avoided it.
 
+## Looking at what it generated
+
+A campaign that reports only coverage and crash counts asks to be taken on trust. The
+result keeps a few of the inputs it actually fed the query:
+
+```python
+result = bigasterisk.fuzz(spark).fuzz(query, seeds, strategy="natural", keep_samples=3)
+
+for sample in result.samples:
+    print(sample)
+```
+
+```text
+iteration 3  (reached new coverage)
+  carriers: [UA,United Air Lines], [UA,], [AA,American Airlines]
+  flights: [F0000205,2026-02-18,B6,MCO,PHL,1320,null,-12,1667,1], ...
+```
+
+Inputs that reached a branch nothing had reached before are kept in preference to merely
+early ones, since those are the ones a guided campaign keeps and mutates further. Each
+sample says whether it found new coverage and whether the query returned anything for it.
+`keep_samples=0` keeps none.
+
+This is also the clearest way to see what separates the three strategies. On the same
+joined query, `random` generates values from nothing:
+
+```text
+carriers: [ZuGESoIJ,bq], [sAV4iWta9,1yp4iu]
+flights:  [byLI3gOYb,KewK,3sDEuVsXZ,...,-2147483648,1990072188,...]
+```
+
+— which is why 40 of its 40 iterations produced no output at all: no invented `carrier`
+ever matches a `code`. `co-dependent` repairs the equality, and the join survives:
+
+```text
+carriers: [F9,Delta Air Lines], [DL,Delta Air Lines], [F9,Delta Air Lines]
+flights:  [F0000065,2026-06-06,F9,LAS,SMF,1605,68,6,2260,0], ...
+```
+
 ## Coverage and guidance
 
 The coverage targets are the query's **branches**: a `Filter` condition and its

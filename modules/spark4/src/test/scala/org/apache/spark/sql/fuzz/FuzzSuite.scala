@@ -302,4 +302,54 @@ class FuzzSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     val noJoin = spark.sql("SELECT cid FROM orders").queryExecution.analyzed
     FuzzEngine.joinedColumnNames(noJoin) shouldBe empty
   }
+
+  // --- samples: what the campaign actually generated ---------------------------
+
+  test("a campaign keeps a few of the inputs it generated") {
+    val result = fuzzer.fuzz(joinQuery, seeds, FuzzConfig(iterations = 20, seed = 1L))
+
+    result.samples should not be empty
+    result.samples.size should be <= 3
+    result.samples.foreach { sample =>
+      sample.tables.keySet shouldBe seeds.keySet
+      sample.tables.values.foreach(_ should not be empty)
+    }
+  }
+
+  test("how many are kept is the caller's choice, and none is a valid choice") {
+    fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, seed = 1L, keepSamples = 5)).samples.size should be <= 5
+    fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, seed = 1L, keepSamples = 0)).samples shouldBe empty
+    an[IllegalArgumentException] should be thrownBy FuzzConfig(keepSamples = -1)
+  }
+
+  test("an input that found new coverage is kept over one that did not") {
+    val result = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 30, seed = 1L, keepSamples = 2))
+
+    // the campaign reaches every branch here, so at least one sample should be one of
+    // the inputs that got it there rather than an arbitrary early candidate
+    result.coverage shouldBe 1.0
+    result.samples.exists(_.reachedNew) shouldBe true
+  }
+
+  test("a sample says whether the query returned anything for it") {
+    val random = fuzzer.fuzz(joinQuery, seeds,
+      FuzzConfig(iterations = 20, seed = 1L, strategy = MutationStrategy.Random))
+
+    // random join keys essentially never match, so its samples are empty results
+    random.samples.exists(_.empty) shouldBe true
+  }
+
+  test("samples survive the round trip through JSON") {
+    val result = fuzzer.fuzz(joinQuery, seeds, FuzzConfig(iterations = 20, seed = 1L))
+    val json = result.json
+
+    json should include("\"samples\":[")
+    json should include("\"reachedNew\"")
+    result.samples.headOption.foreach { sample =>
+      json should include(s"\"iteration\":${sample.iteration}")
+    }
+  }
 }

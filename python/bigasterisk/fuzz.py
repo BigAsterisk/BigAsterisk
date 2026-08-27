@@ -73,12 +73,40 @@ class FuzzResult:
         self.abstracted = payload["abstracted"]
         self.covered = set(payload["covered"])
         self.failures = [FuzzFailure(f) for f in payload["failures"]]
+        #: a few of the generated inputs, so you can see what the campaign fed the query
+        self.samples = [FuzzSample(s) for s in payload.get("samples", [])]
 
     def __repr__(self):
         return ("FuzzResult(%d iterations (%d without Spark), %d failures, "
                 "coverage %.0f%% of %d branches, %d empty)" % (
                     self.iterations, self.abstracted, len(self.failures),
                     self.coverage * 100, self.total_branches, self.empty_results))
+
+
+class FuzzSample:
+    """One input the campaign generated, kept so it can be looked at."""
+
+    def __init__(self, payload):
+        self.iteration = payload["iteration"]
+        #: whether it reached a branch nothing had reached before
+        self.reached_new = payload["reachedNew"]
+        #: whether the query returned nothing for it
+        self.empty = payload["empty"]
+        #: the generated rows, by table name, each row rendered as text
+        self.tables = payload["tables"]
+
+    def __repr__(self):
+        note = []
+        if self.reached_new:
+            note.append("reached new coverage")
+        if self.empty:
+            note.append("produced no output")
+        suffix = "  (%s)" % ", ".join(note) if note else ""
+        body = "\n".join(
+            "  %s: %s%s" % (name, ", ".join(rows[:4]),
+                            ", ... %d rows" % len(rows) if len(rows) > 4 else "")
+            for name, rows in sorted(self.tables.items()))
+        return "iteration %d%s\n%s" % (self.iteration, suffix, body)
 
 
 class Fuzz:
@@ -91,7 +119,7 @@ class Fuzz:
 
     def fuzz(self, query, seeds, iterations=100, strategy="co-dependent",
              rows_per_table=10, seed=0, guided=True, abstract_framework=True,
-             rows_per_vector=3):
+             rows_per_vector=3, keep_samples=3):
         """Run a fuzzing campaign against ``query``.
 
         ``seeds`` maps each table name the query reads to a DataFrame. Their rows are
@@ -105,6 +133,10 @@ class Fuzz:
         interpreter does not support falls back to Spark, so this changes speed and
         never results.
 
+        ``keep_samples`` retains that many of the generated inputs on the result, so you
+        can look at what the campaign actually fed the query — see ``FuzzResult.samples``.
+        Inputs that reached new coverage are preferred over merely early ones.
+
         ``rows_per_vector`` bounds the corpus: seed rows that decide every branch of the
         query the same way are interchangeable to its control flow, so only a few of each
         distinct behaviour are kept.
@@ -117,5 +149,6 @@ class Fuzz:
             jseeds.put(name, df._jdf)
         result = self._support.fuzzJava(
             query, jseeds, int(iterations), strategy, int(rows_per_table),
-            int(seed), bool(guided), bool(abstract_framework), int(rows_per_vector))
+            int(seed), bool(guided), bool(abstract_framework), int(rows_per_vector),
+            int(keep_samples))
         return FuzzResult(json.loads(result.json()))
