@@ -74,6 +74,31 @@ services:
       master:
         condition: service_healthy
 
+  # JupyterLab, whose Spark driver is a client of this cluster: the notebooks run here,
+  # the work happens in the worker containers.
+  notebook:
+    <<: *common
+    command: ["notebook"]
+    hostname: notebook
+    environment:
+      <<: *env
+      # Executors dial the driver back, so it must be reachable by a name they can
+      # resolve. On this network that is the service name.
+      SPARK_DRIVER_HOST: notebook
+      EXECUTOR_MEMORY: "2g"
+      CORES_MAX: "6"
+    ports:
+      - "8888:8888"
+    volumes:
+      # the notebooks are mounted rather than baked in, so edits survive the container
+      - ../notebooks:/opt/bigasterisk/notebooks
+      - ../examples/data:/opt/bigasterisk/examples/data:ro
+      - events:/opt/bigasterisk/events
+      - data:/opt/bigasterisk/data
+    depends_on:
+      master:
+        condition: service_healthy
+
   # Client role. Not started by `up`: it runs a job and exits, which is what a client
   # should do. Invoke it with `run --rm submit <command>`.
   submit:

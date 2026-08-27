@@ -96,24 +96,35 @@ technique.
 
 ## Getting started
 
-**[docs/setup.md](docs/setup.md)** covers the three ways in — notebooks with Docker, a
-real cluster with Docker, or a checkout for building and changing the code. None of them
-asks you to install Spark, a JDK or Python by hand.
+**[docs/setup.md](docs/setup.md)** covers the three ways in — a cluster with notebooks on
+top of it, notebooks alone, or a checkout for building and changing the code. None of
+them asks you to install Spark, a JDK or Python by hand.
 
-### The notebooks, with Docker
+### Notebooks on a real cluster
 
 ```bash
-docker build -t bigasterisk -f docker/Dockerfile .
-docker run --rm -p 8888:8888 bigasterisk        # JupyterLab on :8888
+scripts/cluster.sh up 3     # master + 3 workers + history + JupyterLab on :8888
 ```
 
-### A real cluster, with Docker
+JupyterLab at <http://localhost:8888> drives that cluster: the notebooks run in the
+driver, the work lands on the workers, and <http://localhost:8080> shows it happening.
 
-Needs Docker and nothing else — no Spark, no JDK, no Python:
+### Your own job, from the command line
 
 ```bash
-scripts/cluster.sh up 3     # a standalone master + 3 workers, each its own container
-scripts/cluster.sh tour     # all 13 tools against it
+bin/bigasterisk analyze \
+  --table orders=examples/data/orders.txt \
+  --schema orders="oid STRING, cid STRING, amount INT" \
+  --query "SELECT cid, SUM(amount) AS total FROM orders GROUP BY cid" \
+  --tool desql          # or titian, bigsift, optdebug, bigtest, fuzz, ... or all
+```
+
+Point it at any tables and any SQL; `scripts/cluster.sh analyze ...` runs the same thing
+against the cluster. The bundled tour and benchmarks exist to check the platform still
+works, not to define what it works on.
+
+```bash
+scripts/cluster.sh tour     # smoke test: all 13 tools on the bundled example
 scripts/cluster.sh down
 ```
 

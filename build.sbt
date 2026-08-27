@@ -138,14 +138,20 @@ lazy val examples = (project in file("examples"))
     commonSettings,
     libraryDependencies ++= Seq(
       "org.apache.spark" %% "spark-core" % sparkVersion,
-      "org.apache.spark" %% "spark-sql"  % sparkVersion
+      "org.apache.spark" %% "spark-sql"  % sparkVersion,
+      "org.scalatest"    %% "scalatest"  % "3.2.19" % Test
     ),
     Compile / run / fork := true,
     Compile / run / javaOptions ++= sparkJavaOptions,
     // run example mains from the repo root so relative paths (tpcds/data, ...) resolve
     Compile / run / baseDirectory := (ThisBuild / baseDirectory).value,
     // forward stdin so interactive mains read input
-    Compile / run / connectInput := true
+    Compile / run / connectInput := true,
+    Test / envVars ++= Map(
+      "SPARK_HOME" ->
+        ((ThisBuild / baseDirectory).value / "tools" / "spark-4.1.2-bin-hadoop3").getAbsolutePath,
+      "SPARK_SCALA_VERSION" -> "2.13"
+    )
   )
 
 // One Scaladoc site across every module: `sbt unidoc` -> target/scala-2.13/unidoc.

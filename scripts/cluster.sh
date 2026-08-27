@@ -1,8 +1,9 @@
 #!/bin/sh
 # Bring up a real Spark standalone cluster running BigAsterisk, and submit into it.
 #
-#   scripts/cluster.sh up [workers]     start master + N workers + history server
-#   scripts/cluster.sh tour             run every tool on the cluster
+#   scripts/cluster.sh up [workers]     start master + N workers + history + notebook
+#   scripts/cluster.sh analyze [args]   run any tool against YOUR query and data
+#   scripts/cluster.sh tour             a smoke test: every tool on the bundled example
 #   scripts/cluster.sh tour titian      run only the tools you name
 #   scripts/cluster.sh run <cmd> [...]  any client command (bigsift, benchmark, pyspark)
 #   scripts/cluster.sh status           what the master sees
@@ -26,10 +27,19 @@ case "${1:-up}" in
     workers="${2:-2}"
     $COMPOSE up -d --build --scale "worker=$workers"
     echo
+    echo "notebooks:  http://localhost:8888   <- JupyterLab, driving this cluster"
     echo "master UI:  http://localhost:8080   (expect $workers workers registered)"
     echo "history:    http://localhost:18080"
     echo
-    echo "Then: scripts/cluster.sh tour"
+    echo "Then open airline_analysis.ipynb, or: scripts/cluster.sh tour"
+    ;;
+
+  analyze)
+    shift
+    # Mount whatever the query reads at the same path in the container, e.g.
+    #   BIGASTERISK_DATA=/my/data scripts/cluster.sh analyze --table t=/data/t.parquet ...
+    $COMPOSE run --rm ${BIGASTERISK_DATA:+-v "$BIGASTERISK_DATA:/data:ro"} \
+      submit analyze "$@"
     ;;
 
   tour)

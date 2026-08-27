@@ -59,8 +59,12 @@ Ends with:
 TOUR OK — every tool ran
 ```
 
-That is the smoke test. The rest of this page runs the tools one at a time so you can
-read what each actually says.
+That is a **smoke test**, not the product: one bundled query, chosen so every answer fits
+on screen. The rest of this page runs the tools one at a time against it so you can read
+what each actually says.
+
+**To point the tools at your own job instead, skip to [Step 16](#step-16-your-own-job).**
+Nothing in the platform is specific to the examples below.
 
 ---
 
@@ -362,7 +366,50 @@ scripts/cluster.sh run benchmark fuzz
 and executor metrics. Useful for convincing yourself the work really happened out on the
 workers.
 
-## Step 16 — Tear down
+## Step 16 — Your own job
+
+Everything above runs a query that ships with the repository. The general entry point
+takes yours:
+
+```bash
+scripts/cluster.sh analyze --help
+```
+
+```
+  --table  name=path      a table to read; repeat for several
+  --schema name=ddl       its schema, e.g. "a STRING, b INT" (else inferred)
+  --format name=format    csv | parquet | json | orc (else inferred from the path)
+  --query  "SELECT ..."   the query to analyse
+  --oracle "predicate"    SQL over the query's OUTPUT that is true for a WRONG row
+  --tool   name           desql titian flowdebug bigsift optdebug perfdebug
+                          watchpoint crash vega bigtest fuzz all
+```
+
+Mount your data in and name it:
+
+```bash
+BIGASTERISK_DATA=/path/to/my/data scripts/cluster.sh analyze \
+  --table events=/data/events.parquet \
+  --query "SELECT user_id, SUM(amount) AS total FROM events GROUP BY user_id" \
+  --oracle "total < 0" \
+  --tool all
+```
+
+Or from a checkout, with no Docker at all:
+
+```bash
+bin/bigasterisk analyze \
+  --table orders=examples/data/orders.txt \
+  --schema orders="oid STRING, cid STRING, amount INT" \
+  --query "SELECT cid, SUM(amount) AS total FROM orders GROUP BY cid" \
+  --tool desql
+```
+
+**Which tools need an oracle:** `flowdebug`, `bigsift` and `optdebug` have to know which
+results are wrong, and only you can say. The rest — `desql`, `titian`, `perfdebug`,
+`watchpoint`, `crash`, `vega`, `bigtest`, `fuzz` — need nothing but the query.
+
+## Step 17 — Tear down
 
 ```bash
 scripts/cluster.sh down
@@ -377,7 +424,8 @@ next time.
 
 | Command | What it does |
 |---|---|
-| `scripts/cluster.sh tour <tool>...` | any subset: `tour titian bigsift optdebug` |
+| `scripts/cluster.sh analyze ...` | **your** query and data, any tool |
+| `scripts/cluster.sh tour <tool>...` | the bundled example: `tour titian bigsift optdebug` |
 | `scripts/cluster.sh run bigsift weather max` | a larger BigSift scenario on generated data |
 | `scripts/cluster.sh run pyspark` | an interactive PySpark shell attached to the cluster |
 | `scripts/cluster.sh run submit <class>` | any main class in the image |

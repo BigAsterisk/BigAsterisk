@@ -3,6 +3,7 @@
 # stdin connects to the interactive menu, and pins the project-local JDK 17 plus the
 # module opens Spark 4 needs.
 #
+#   bin/bigasterisk analyze --help  # run any tool against your own query and data
 #   bin/bigasterisk tour            # every tool, on one small dataset, in one run
 #   bin/bigasterisk                 # interactive BigSift menu
 #   bin/bigasterisk weather max     # one-shot: run a BigSift scenario with an oracle
@@ -21,13 +22,22 @@ fi
 if [ -d "$JDK/Contents/Home" ]; then JAVA_HOME="$JDK/Contents/Home"; else JAVA_HOME="$JDK"; fi
 export JAVA_HOME
 
-# The tour runs on the small committed dataset and needs no generated data.
 MAIN=org.bigasterisk.examples.BigSiftCLI
-if [ "$1" = "tour" ]; then
-  MAIN=org.bigasterisk.examples.PlatformTour
-  shift
-  SKIP_DEMO_DATA=1
-fi
+case "$1" in
+  # The tour runs on the small committed dataset and needs no generated data.
+  tour)
+    MAIN=org.bigasterisk.examples.PlatformTour
+    shift
+    SKIP_DEMO_DATA=1
+    ;;
+  # The general entry point: your query, your data, any tool. Reads nothing of its own,
+  # so no demo data is generated for it either.
+  analyze)
+    MAIN=org.bigasterisk.examples.Analyze
+    shift
+    SKIP_DEMO_DATA=1
+    ;;
+esac
 
 # Generate the demo datasets on first run.
 if [ -z "$SKIP_DEMO_DATA" ] && { [ ! -f "$ROOT/examples/data/airport.csv" ] \

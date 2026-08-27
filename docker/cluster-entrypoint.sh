@@ -71,6 +71,13 @@ case "${1:-help}" in
     submit org.bigasterisk.examples.PlatformTour "$@"
     ;;
 
+  analyze)
+    # The general entry point: your query, your data, any tool. Mount your data in and
+    # name it — nothing here is specific to the bundled examples.
+    shift
+    submit org.bigasterisk.examples.Analyze "$@"
+    ;;
+
   bigsift)
     shift
     submit org.bigasterisk.examples.BigSiftCLI "$@"
@@ -107,6 +114,19 @@ case "${1:-help}" in
       /opt/bigasterisk/python/demos/airline_analysis.py
     ;;
 
+  notebook)
+    # JupyterLab whose driver is a client of this cluster. The executors live in the
+    # worker containers, so the driver has to be reachable by name from them — hence
+    # SPARK_DRIVER_HOST, which Compose sets to this service's name.
+    mkdir -p "$EVENT_LOG_DIR"
+    export BIGASTERISK_MASTER="$MASTER_URL"
+    export SPARK_DRIVER_HOST="${SPARK_DRIVER_HOST:-notebook}"
+    export BIGASTERISK_JARS="$(jars)"
+    cd /opt/bigasterisk/notebooks
+    exec jupyter lab --ip 0.0.0.0 --port 8888 --no-browser --allow-root \
+      --IdentityProvider.token='' --ServerApp.password=''
+    ;;
+
   pydemo)
     # The PySpark front end against the cluster, including reading inside a Python UDF.
     mkdir -p "$EVENT_LOG_DIR"
@@ -138,12 +158,14 @@ BigAsterisk cluster image. Roles:
   worker              standalone worker (UI 8081)
   history             history server (UI 18080)
 
-  tour [tool...]      run the platform tour against the cluster; name tools to run
+  analyze [args]      run any tool against YOUR query and data (--help for the flags)
+  tour [tool...]      a smoke test: the bundled example, every tool. Name tools to run
                       only those (desql titian flowdebug bigsift optdebug bigdebug
                       perfdebug vega bigfuzz depfuzz naturalfuzz bigtest naturalsym)
   bigsift [args]      run the BigSift CLI
   benchmark <name>    capture | ablation | fuzz
   submit <class>      submit any main class in the image
+  notebook            JupyterLab, with its driver attached to this cluster
   airline             a realistic airline pipeline, with every tool on it
   pydemo              the PySpark front end against the cluster, end to end
   pyspark             interactive PySpark shell attached to the cluster

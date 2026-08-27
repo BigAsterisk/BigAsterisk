@@ -42,6 +42,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/local/bin/python
 
+# JupyterLab, so a notebook can be a *client of this cluster* rather than running its own
+# Spark. PySpark itself is not installed: the image already carries a full Spark
+# distribution, and a pip copy alongside it would be a second version to disagree with.
+RUN pip3 install --no-cache-dir --retries 5 --timeout 120 --break-system-packages \
+        jupyterlab nbconvert 2>/dev/null \
+ || pip3 install --no-cache-dir --retries 5 --timeout 120 jupyterlab nbconvert
+
 # The CDN first, the archive as the fallback. `archive.apache.org` serves every release
 # but throttles hard — several minutes for this 400 MB tarball — while `dlcdn` is fast and
 # carries current ones. Trying both makes a first build quick without giving up on

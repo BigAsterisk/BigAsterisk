@@ -5,33 +5,72 @@ the last is for working on the platform itself.
 
 | | You want to | You need | Time |
 |---|---|---|---|
-| **A** | read the notebooks | Docker | ~10 min, mostly the build |
-| **B** | run the tools on a real cluster | Docker | ~10 min |
+| **A** | notebooks **and** a real cluster behind them | Docker | ~10 min, mostly the build |
+| **B** | notebooks only, no cluster | Docker | ~10 min |
 | **C** | build, test, or change the code | a checkout | ~15 min |
 
 None of them asks you to install Spark, a JDK or Python by hand.
 
 ---
 
-## A. The notebooks, with Docker
+## A. Notebooks on a real cluster
 
-The fastest way to see the platform work.
+One command brings up a standalone master, workers in their own containers, a history
+server, and JupyterLab whose Spark driver is a **client of that cluster** — so the
+notebooks run where the tools are meant to run.
 
 ```bash
 git clone https://github.com/BigAsterisk/BigAsterisk.git
 cd BigAsterisk
 
+scripts/cluster.sh up 3
+```
+
+The first run builds the image: it compiles the platform from source and downloads Spark,
+so allow several minutes. Afterwards it is cached and `up` takes seconds.
+
+```
+notebooks:  http://localhost:8888   <- JupyterLab, driving this cluster
+master UI:  http://localhost:8080   (expect 3 workers registered)
+history:    http://localhost:18080
+```
+
+Open <http://localhost:8888> — no token, no password — and start with
+**`airline_analysis.ipynb`**: a quarter of a million flights, three joins, two Python UDFs
+and one planted fault, with all thirteen tools taking turns on it. Watch
+<http://localhost:8080> while it runs and you will see the application appear and the
+work land on the workers.
+
+Also available while the cluster is up:
+
+```bash
+scripts/cluster.sh analyze --help   # any tool, against YOUR query and data
+scripts/cluster.sh tour             # smoke test: 13 tools on the bundled example
+scripts/cluster.sh down
+```
+
+`local[*]` runs every executor inside the driver JVM, which hides the failures that only
+appear when executors are genuinely elsewhere — which is why this is the path the docs
+lead with. [Running on a cluster](cluster.md) explains the parts.
+
+!!! tip "Give Docker enough memory and disk"
+
+    The airline notebook generates 250,000 flights across three workers. 6 GB of memory
+    is comfortable, and the image plus Spark needs a few GB of disk. Docker Desktop →
+    Settings → Resources. To make the run smaller, set `FLIGHTS` in the notebook's first
+    code cell.
+
+---
+
+## B. Notebooks without a cluster
+
+A single container running JupyterLab with Spark in local mode. Smaller and simpler; it
+just cannot show you anything that only happens when executors are elsewhere.
+
+```bash
 docker build -t bigasterisk -f docker/Dockerfile .
 docker run --rm -p 8888:8888 bigasterisk
 ```
-
-The build compiles the platform from source and installs PySpark, so allow several
-minutes the first time; afterwards it is cached. When it prints a JupyterLab banner, open
-<http://localhost:8888> — no token, no password.
-
-**Start with `airline_analysis.ipynb`.** A quarter of a million flights, three joins, two
-Python UDFs and one planted fault, with all thirteen tools taking turns on it. Every other
-notebook is one tool on a small dataset.
 
 To check every notebook still passes without opening a browser:
 
@@ -40,33 +79,6 @@ docker run --rm bigasterisk validate
 ```
 
 Each notebook ends in assertions, so a clean run is a real check rather than a demo.
-
-!!! tip "Give Docker enough memory"
-
-    The airline notebook generates 250,000 flights and runs Spark in the container.
-    4 GB is comfortable; 2 GB will thrash. Docker Desktop → Settings → Resources.
-    To make it smaller instead, set `FLIGHTS` in the notebook's first code cell.
-
----
-
-## B. A real cluster, with Docker
-
-A standalone master, workers in their own containers, and a history server — the
-configuration the tools are actually meant to attach to.
-
-```bash
-scripts/cluster.sh up 3       # master + 3 workers + history server
-scripts/cluster.sh tour       # all 13 tools against it
-scripts/cluster.sh run airline    # the airline pipeline, with progress
-scripts/cluster.sh down
-```
-
-Then <http://localhost:8080> for the master and <http://localhost:18080> for completed
-applications. [Running on a cluster](cluster.md) explains the parts, and
-[the guided demo](demo.md) walks every tool one at a time with its real output.
-
-This matters more than it sounds: `local[*]` runs every executor inside the driver JVM,
-which hides the failures that only appear when executors are genuinely elsewhere.
 
 ---
 
@@ -94,7 +106,8 @@ rather use your own, it must be **JDK 17 or newer**, and Python must be **3.10+*
 ### Running things
 
 ```bash
-bin/bigasterisk tour                    # every tool, one small dataset, one process
+bin/bigasterisk analyze --help          # any tool, against your own query and data
+bin/bigasterisk tour                    # smoke test: every tool, one bundled dataset
 scripts/standalone-tour.sh              # the same, on a real standalone cluster
 python/demos/run-airline.sh             # the airline analysis as a script
 scripts/validate-notebooks.sh           # execute every notebook headlessly

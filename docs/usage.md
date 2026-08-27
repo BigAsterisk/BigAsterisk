@@ -4,6 +4,26 @@ Build the session through `BigAsterisk.configure` so the binding for your Spark 
 installs itself, then reach the tools through `BigAsterisk`. SQL and PySpark are the
 primary front ends; the RDD API is available where the original technique needed it.
 
+## The command line
+
+Every tool is reachable from one command, against any tables and any SQL:
+
+```bash
+bin/bigasterisk analyze \
+  --table orders=examples/data/orders.txt \
+  --schema orders="oid STRING, cid STRING, amount INT" \
+  --query "SELECT cid, SUM(amount) AS total FROM orders GROUP BY cid" \
+  --tool desql
+```
+
+`--tool all` runs every one. `flowdebug`, `bigsift` and `optdebug` also need `--oracle`,
+a SQL predicate over the query's output that is true for a *wrong* row — they have to
+know which results are wrong, and only you can say. `bin/bigasterisk analyze --help`
+lists the flags.
+
+The rest of this page is the programmatic API, for using the tools from your own code.
+
+
 ## Spark SQL / DataFrames
 
 ```scala
