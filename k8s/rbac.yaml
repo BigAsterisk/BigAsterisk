@@ -1,0 +1,53 @@
+# What a Spark driver needs to run on Kubernetes: somewhere to live, an identity, and
+# permission to manage the executors it creates. Nothing here is BigAsterisk-specific —
+# the platform attaches through --jars and spark.sql.extensions, exactly as it does on a
+# standalone cluster.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bigasterisk
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bigasterisk
+  namespace: bigasterisk
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: bigasterisk-driver
+  namespace: bigasterisk
+rules:
+  # the driver creates one pod per executor, watches them, and deletes them on shutdown
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get", "list"]
+  # configuration and the driver's own credentials are mounted into every executor
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  # cluster mode reaches executors through a headless service
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: bigasterisk-driver
+  namespace: bigasterisk
+subjects:
+  - kind: ServiceAccount
+    name: bigasterisk
+    namespace: bigasterisk
+roleRef:
+  kind: Role
+  name: bigasterisk-driver
+  apiGroup: rbac.authorization.k8s.io

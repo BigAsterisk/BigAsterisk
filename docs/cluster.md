@@ -7,7 +7,7 @@ the network. None of those can happen when there is only one JVM.
 
 So the platform is exercised two ways beyond in-process: a standalone master and worker
 started from the Spark distribution, and a Compose stack where every role is its own
-container.
+container. Both are run, not just written.
 
 !!! note "This is not a formality"
 
@@ -33,6 +33,12 @@ That starts a master and a worker as separate processes, submits the platform to
 push, so cluster-mode breakage fails the build rather than being discovered later.
 
 ## With Docker Compose
+
+Verified: master, three workers in their own containers, a history server, and a client
+that submits and exits. All twelve tools pass, the history server records the completed
+application, and the framework-abstraction benchmark measures **50.4x** there against
+69.8x in process — the gap narrows because a real cluster makes each Spark iteration
+more expensive, which is the effect that benchmark exists to show.
 
 ```bash
 scripts/cluster.sh up 3        # master + 3 workers + history server
@@ -107,10 +113,12 @@ you already run.
 ## Limitations
 
 - **The Compose stack is not built in CI.** An image that compiles the platform from
-  source is too slow for every push, so CI validates the Compose definition and runs the
-  process-level standalone cluster instead. The image itself is verified by running it.
-- **Standalone only.** No YARN or Kubernetes manifests yet. The `--jars` attachment above
-  is scheduler-agnostic, but nothing here proves that on those schedulers.
+  source and downloads Spark is too slow for every push, so CI validates the Compose
+  definition and runs the process-level standalone cluster instead. The image itself is
+  verified by running it.
+- **Kubernetes manifests exist but are unverified.** `k8s/` carries the RBAC a Spark
+  driver needs and a submit script; there was no reachable cluster to run them against,
+  and `k8s/README.md` says so rather than leaving you to find out. No YARN.
 - **One machine.** Compose puts every container on one host, so it exercises process and
   classloader boundaries and real network fetches between JVMs — not multi-host latency,
   data locality or straggler behaviour.

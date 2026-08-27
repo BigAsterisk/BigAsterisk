@@ -42,9 +42,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/local/bin/python
 
-RUN curl -sL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz" \
-      | tar xz -C /opt \
-    && ln -s "/opt/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}" /opt/spark
+# The CDN first, the archive as the fallback. `archive.apache.org` serves every release
+# but throttles hard — several minutes for this 400 MB tarball — while `dlcdn` is fast and
+# carries current ones. Trying both makes a first build quick without giving up on
+# versions the CDN has retired.
+RUN set -eu; \
+    tarball="spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz"; \
+    for host in "https://dlcdn.apache.org/spark" "https://archive.apache.org/dist/spark"; do \
+      if curl -fsSL --retry 3 "$host/spark-${SPARK_VERSION}/$tarball" -o /tmp/spark.tgz; then \
+        break; \
+      fi; \
+    done; \
+    test -s /tmp/spark.tgz; \
+    tar xz -C /opt -f /tmp/spark.tgz; \
+    rm /tmp/spark.tgz; \
+    ln -s "/opt/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}" /opt/spark
 
 ENV SPARK_HOME=/opt/spark \
     BIGASTERISK_HOME=/opt/bigasterisk \
