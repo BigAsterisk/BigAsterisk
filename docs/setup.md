@@ -108,16 +108,30 @@ bin/sbt 'benchmarks/runMain org.bigasterisk.benchmarks.BenchmarkRunner'
 ### Notebooks from a checkout
 
 Notebooks find the jars themselves — they glob `modules/*/target` — so `bin/sbt package`
-is the only prerequisite. Use the interpreter bootstrap installed, which already has
-JupyterLab:
+is the only build prerequisite.
+
+To **execute** them headlessly, nothing more is needed: `bin/bootstrap` installs
+`nbconvert` and the runner sets `SPARK_HOME` and `PYTHONPATH` itself.
 
 ```bash
 bin/sbt package
+scripts/validate-notebooks.sh airline_analysis     # or omit the name for all of them
+```
+
+To **open them in a browser**, install JupyterLab into the project's interpreter —
+bootstrap deliberately installs only what the headless runner needs:
+
+```bash
+tools/python/bin/python3 -m pip install jupyterlab
 tools/python/bin/python3 -m jupyterlab --notebook-dir notebooks
 ```
 
-If you would rather use your own Python, it needs `jupyterlab` and `nbconvert`, and
-`SPARK_HOME` must point at a Spark 4.1.x distribution.
+Or use your own Python, which then needs `jupyterlab` *and* `pyspark==4.1.2` (or
+`SPARK_HOME` pointing at a Spark 4.1.x distribution), plus `BIGASTERISK_HOME` set to the
+repository root if you start Jupyter from elsewhere.
+
+If you only want to read a notebook in a browser without any of this, **option A is the
+shorter road** — the image already has JupyterLab in it.
 
 ---
 
