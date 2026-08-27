@@ -37,6 +37,7 @@ theme:
 nav:
   - Home: index.md
   - Getting started: install.md
+  - Guided demo: demo.md
   - Usage: usage.md
   - Architecture: architecture.md
   - Tools:

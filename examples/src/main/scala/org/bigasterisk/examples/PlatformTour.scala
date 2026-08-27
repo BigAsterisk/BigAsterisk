@@ -45,6 +45,15 @@ object PlatformTour {
   private var failures = 0
 
   def main(args: Array[String]): Unit = {
+    selected = args.map(_.trim.toLowerCase).filter(_.nonEmpty).toSet
+    val unknown = selected -- tools.toSet
+    if (unknown.nonEmpty) {
+      System.err.println(
+        s"Unknown tool(s): ${unknown.toSeq.sorted.mkString(", ")}\n" +
+        s"Known: ${tools.mkString(", ")}")
+      System.exit(2)
+    }
+
     val builder = SparkSession.builder()
       .appName("BigAsterisk platform tour")
       .config("spark.sql.shuffle.partitions", "2")
@@ -88,13 +97,13 @@ object PlatformTour {
     println(s"${orders.count()} orders, ${customers.count()} customers. " +
       "One order is an outlier: o8, 99999.\n")
 
-    section("DeSQL — step through the query") {
+    section("desql", "DeSQL — step through the query") {
       BigAsterisk.desql(spark).decompose(spark, FaultyQuery).foreach { step =>
         println(f"  [${step.id}] ${step.operator}%-12s ${step.detail}")
       }
     }
 
-    section("Titian — which records produced the wrong total") {
+    section("titian", "Titian — which records produced the wrong total") {
       val lineage = BigAsterisk.lineage(spark)
       lineage.enableCapture(spark)
       try {
@@ -109,27 +118,27 @@ object PlatformTour {
       } finally lineage.disableCapture(spark)
     }
 
-    section("FlowDebug — which of them actually mattered") {
+    section("flowdebug", "FlowDebug — which of them actually mattered") {
       BigAsterisk.influence(spark)
         .influencers(spark.sql(FaultyQuery), "total < 0", topK = 4)
         .foreach(i => println(s"  $i"))
     }
 
-    section("BigSift — which input records are to blame (data-space)") {
+    section("bigsift", "BigSift — which input records are to blame (data-space)") {
       val result = BigSiftSQL.debug(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
       println(s"  provenance left ${result.provenanceSize} candidate records; " +
         s"delta debugging narrowed them to ${result.faultInducingRows.size}")
       result.faultInducingRows.foreach(r => println(s"    $r"))
     }
 
-    section("OptDebug — which operation is to blame (code-space)") {
+    section("optdebug", "OptDebug — which operation is to blame (code-space)") {
       // Fault isolation in the code: which operation is responsible, as opposed to
       // which input records are.
       OptDebug.localize(spark, "orders", FaultyQuery, (r: Row) => r.getLong(1) < 0)
         .ranked.take(3).foreach(op => println(s"  $op"))
     }
 
-    section("BigDebug — a breakpoint: the state at a point, without pausing") {
+    section("bigdebug", "BigDebug — a breakpoint: the state at a point, without pausing") {
       val bp = BigAsterisk.breakpoints(spark).breakpoint(orders.filter(col("amount") > 300))
       // the query runs at full speed through it; the state is regenerated only now
       bp.df.groupBy("cid").sum("amount").collect()
@@ -137,14 +146,14 @@ object PlatformTour {
       bp.state(limit = 3).foreach(r => println(s"    $r"))
     }
 
-    section("BigDebug — a watchpoint on the records flowing past") {
+    section("bigdebug", "BigDebug — a watchpoint on the records flowing past") {
       val wp = BigAsterisk.watchpoints(spark).watch(orders, col("amount") > 1000)
       wp.df.groupBy("cid").sum("amount").collect()
       println(s"  ${wp.hits} record(s) matched ${wp.condition}")
       wp.captured.foreach(r => println(s"    $r"))
     }
 
-    section("BigDebug — which record killed the query") {
+    section("bigdebug", "BigDebug — which record killed the query") {
       val guard = BigAsterisk.crashCulprit(spark).guard(singlePartition)
       spark.conf.set("spark.sql.ansi.enabled", "true")
       // the failure is expected, so keep Spark's task-failure stack traces out of the way
@@ -160,14 +169,14 @@ object PlatformTour {
       }
     }
 
-    section("PerfDebug — which record cost too much") {
+    section("perfdebug", "PerfDebug — which record cost too much") {
       val profile = BigAsterisk.perfdebug(spark).profile(singlePartition, topK = 3)
       profile.df.groupBy("cid").sum("amount").collect()
       println(f"  ${profile.records} records, skew ${profile.skew}%.1fx the mean")
       profile.slowest.take(2).foreach(r => println(s"    $r"))
     }
 
-    section("Vega — the next revision reuses what it can") {
+    section("vega", "Vega — the next revision reuses what it can") {
       val vega = BigAsterisk.vega(spark)
       try {
         vega.run(spark.sql("SELECT cid, amount FROM orders WHERE amount > 100")).df.collect()
@@ -179,36 +188,85 @@ object PlatformTour {
       } finally vega.clear()
     }
 
-    section("Fuzzing — what else would break it") {
-      val result = BigAsterisk.fuzz(spark).fuzz(
-        "SELECT c.name, SUM(o.amount) AS total FROM orders o " +
-          "JOIN customers c ON o.cid = c.cid WHERE o.amount > 100 GROUP BY c.name",
-        Map("orders" -> orders, "customers" -> customers),
-        FuzzConfig(iterations = 20, seed = 1L))
+    // One query, three mutation strategies — the three fuzzing papers differ in exactly
+    // where a generated value comes from, so running them side by side is the comparison.
+    val fuzzQuery =
+      "SELECT c.name, SUM(o.amount) AS total FROM orders o " +
+        "JOIN customers c ON o.cid = c.cid WHERE o.amount > 100 GROUP BY c.name"
+    val fuzzSeeds = Map("orders" -> orders, "customers" -> customers)
+
+    def campaign(strategy: MutationStrategy): FuzzResult =
+      BigAsterisk.fuzz(spark).fuzz(fuzzQuery, fuzzSeeds,
+        FuzzConfig(iterations = 20, seed = 1L, strategy = strategy))
+
+    section("bigfuzz", "BigFuzz — values drawn for the column's type") {
+      val result = campaign(MutationStrategy.Random)
       println(s"  $result")
+      println(s"  ${result.emptyResults} of ${result.iterations} iterations produced " +
+        s"nothing: a randomly generated join key rarely matches")
       result.failures.take(1).foreach(f => println(s"    $f"))
     }
 
-    section("BigTest — an input per path through the query") {
+    section("depfuzz", "DepFuzz — join equalities repaired across tables") {
+      val result = campaign(MutationStrategy.CoDependent)
+      println(s"  $result")
+      println(s"  ${result.emptyResults} of ${result.iterations} iterations produced " +
+        s"nothing: the two sides of the join are kept together")
+    }
+
+    section("naturalfuzz", "NaturalFuzz — rows spliced out of real ones") {
+      val result = campaign(MutationStrategy.Natural)
+      println(s"  $result")
+      println(s"  branches reached: ${result.covered.toSeq.sorted.mkString(", ")}")
+    }
+
+    section("bigtest", "BigTest — an input per path through the query") {
       BigAsterisk.testgen(spark)
         .generate("SELECT cid FROM orders WHERE amount > 100", Map("orders" -> orders),
           TestGenConfig(rowsPerPath = 1))
         .cases.foreach(c => println(s"  $c"))
     }
 
+    section("naturalsym", "NaturalSym — the same paths, with values that look real") {
+      // `natural` draws a witness from values that actually occur wherever the path
+      // allows one, and a declared distribution shapes the rest. Same coverage, records
+      // that read like records.
+      val suite = BigAsterisk.testgen(spark).generate(
+        "SELECT cid FROM orders WHERE amount > 100", Map("orders" -> orders),
+        TestGenConfig(rowsPerPath = 2, natural = true, seed = 3L,
+          distributions = Map("amount" -> "normal(400, 150)")))
+      suite.cases.foreach(c => println(s"  $c"))
+      println(f"  coverage ${suite.coverage * 100}%.0f%% of ${suite.totalBranches} branches")
+    }
+
     spark.stop()
 
     println()
     if (failures == 0) {
-      println("TOUR OK — every tool ran")
+      val what = if (selected.isEmpty) "every tool" else s"$ran section(s)"
+      println(s"TOUR OK — $what ran")
     } else {
       println(s"TOUR FAILED — $failures section(s) failed")
       System.exit(1)
     }
   }
 
-  /** Runs one section, reporting rather than aborting so the whole tour is seen. */
-  private def section(title: String)(body: => Unit): Unit = {
+  /** The tools named on the command line; empty means all of them. */
+  private var selected: Set[String] = Set.empty
+
+  /** Sections that actually ran, so naming a tool that does not exist is not silent. */
+  private var ran = 0
+
+  /**
+   * Runs one section, reporting rather than aborting so the whole tour is seen.
+   *
+   * `key` is the tool's name on the command line. A tool with several sections — the
+   * debugging primitives are three — shares one key, because "run BigDebug" should mean
+   * all of it.
+   */
+  private def section(key: String, title: String)(body: => Unit): Unit = {
+    if (selected.nonEmpty && !selected.contains(key)) return
+    ran += 1
     println(s"── $title")
     try {
       body
@@ -219,4 +277,9 @@ object PlatformTour {
         println(s"  FAILED: ${e.getClass.getSimpleName}: ${e.getMessage}\n")
     }
   }
+
+  /** Every tool the tour can run, in the order it runs them. */
+  val tools: Seq[String] = Seq(
+    "desql", "titian", "flowdebug", "bigsift", "optdebug", "bigdebug", "perfdebug",
+    "vega", "bigfuzz", "depfuzz", "naturalfuzz", "bigtest", "naturalsym")
 }

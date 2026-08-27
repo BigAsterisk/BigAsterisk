@@ -60,7 +60,9 @@ case "${1:-help}" in
   tour)
     # Every tool, on one planted fault, against the real cluster. Exits non-zero if any
     # section fails, so `docker compose run submit tour` is a usable smoke test.
-    submit org.bigasterisk.examples.PlatformTour
+    # Naming tools runs only those: `tour titian bigsift`.
+    shift
+    submit org.bigasterisk.examples.PlatformTour "$@"
     ;;
 
   bigsift)
@@ -85,6 +87,20 @@ case "${1:-help}" in
     submit "$@"
     ;;
 
+  pydemo)
+    # The PySpark front end against the cluster, including reading inside a Python UDF.
+    mkdir -p "$EVENT_LOG_DIR"
+    exec "$SPARK_HOME/bin/spark-submit" \
+      --master "$MASTER_URL" \
+      --jars "$(jars)" \
+      --conf spark.eventLog.enabled=true \
+      --conf "spark.eventLog.dir=$EVENT_LOG_DIR" \
+      --conf "spark.executor.cores=${EXECUTOR_CORES:-1}" \
+      --conf "spark.executor.memory=${EXECUTOR_MEMORY:-1g}" \
+      --conf "spark.cores.max=${CORES_MAX:-4}" \
+      /opt/bigasterisk/python/demos/cluster_demo.py
+    ;;
+
   pyspark)
     # An interactive PySpark shell attached to the cluster, with the platform loaded.
     exec "$SPARK_HOME/bin/pyspark" --master "$MASTER_URL" --jars "$(jars)"
@@ -102,10 +118,13 @@ BigAsterisk cluster image. Roles:
   worker              standalone worker (UI 8081)
   history             history server (UI 18080)
 
-  tour                run the platform tour against the cluster
+  tour [tool...]      run the platform tour against the cluster; name tools to run
+                      only those (desql titian flowdebug bigsift optdebug bigdebug
+                      perfdebug vega bigfuzz depfuzz naturalfuzz bigtest naturalsym)
   bigsift [args]      run the BigSift CLI
   benchmark <name>    capture | ablation | fuzz
   submit <class>      submit any main class in the image
+  pydemo              the PySpark front end against the cluster, end to end
   pyspark             interactive PySpark shell attached to the cluster
   shell               a shell in the image
 USAGE

@@ -341,13 +341,12 @@ class LineageContext(@transient val sparkContext: SparkContext) extends Logging 
     val ids = capturedTapIds.toSet
     if (ids.nonEmpty) {
       val master = sparkContext.env.blockManager.master
-      // driver-side filtering: forwarding this closure to the executors would have it
-      // deserialized by Spark's RPC, which cannot see classes shipped with `--jars`.
-      // Lineage blocks are stored with tellMaster = true, so the driver knows them all.
-      master.getMatchingBlockIds({
-        case org.apache.spark.storage.RDDBlockId(id, _) => ids.contains(id)
-        case _ => false
-      }, askStorageEndpoints = false).foreach(master.removeBlock)
+      // One lookup per tap rather than one filter over all of them: the shared helper
+      // knows about both hazards of this call — the closure that must not reach an
+      // executor, and the block map Spark iterates without a lock.
+      ids.toSeq.flatMap(id =>
+        org.apache.spark.sql.lineage.TitianSQL.blockIdsOf(master, id)
+      ).foreach(id => master.removeBlock(id))
       capturedTapIds.clear()
     }
   }

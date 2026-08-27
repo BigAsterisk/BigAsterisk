@@ -52,6 +52,55 @@ import org.apache.spark.util.PackIntIntoLong
  */
 object TitianSQL {
 
+  /**
+   * The lineage blocks a tap wrote, by block id.
+   *
+   * ==Two hazards, both of them Spark's==
+   * `askStorageEndpoints = true` forwards the filter to every executor, where Spark's
+   * RPC deserializes it — and a lambda compiled into a jar shipped with `--jars` lives in
+   * a classloader that path cannot see, so it arrives as a `SerializedLambda` that cannot
+   * be assigned. Every lineage block is stored with `tellMaster = true`, so the driver's
+   * own bookkeeping already knows them all and the filter can run here instead.
+   *
+   * The driver-side path has its own hazard: the block manager master answers it inside a
+   * `Future` that iterates its block map without holding a lock, so a cluster busy enough
+   * to be adding or evicting blocks at the same moment throws
+   * `ConcurrentModificationException` from inside Spark. That read is not ours to make
+   * safe, and the failure is transient by construction — the map is only mid-mutation for
+   * an instant — so it is retried rather than propagated. A caller would otherwise see a
+   * trace fail for a reason that has nothing to do with its query.
+   */
+  private[spark] def blockIdsOf(
+      master: org.apache.spark.storage.BlockManagerMaster,
+      tapId: Int): Seq[BlockId] = {
+    var attempt = 0
+    while (true) {
+      try {
+        return master.getMatchingBlockIds({
+          case RDDBlockId(id, _) => id == tapId
+          case _                 => false
+        }, askStorageEndpoints = false)
+      } catch {
+        case e: org.apache.spark.SparkException
+          if attempt < BlockLookupAttempts &&
+            rootCause(e).isInstanceOf[java.util.ConcurrentModificationException] =>
+          attempt += 1
+          Thread.sleep(BlockLookupBackoffMillis * attempt)
+      }
+    }
+    Nil // unreachable; `while (true)` either returns or throws
+  }
+
+  /** Enough attempts to outlast a burst of block churn, few enough to fail loudly. */
+  private val BlockLookupAttempts = 8
+  private val BlockLookupBackoffMillis = 25L
+
+  private def rootCause(t: Throwable): Throwable = {
+    var cause = t
+    while (cause.getCause != null && cause.getCause != cause) cause = cause.getCause
+    cause
+  }
+
   /** Turn lineage capture on for `spark` (equivalent to setting
    * `spark.titian.sql.capture=true`).
    * @group capture */
@@ -267,16 +316,7 @@ object TitianSQL {
       spark: SparkSession, tapId: Int): RDD[T] = {
     val sc = spark.sparkContext
     val master = sc.env.blockManager.master
-    // askStorageEndpoints = false deliberately: with true, the driver forwards this
-    // filter to every executor, where Spark's own RPC deserializes it. A lambda compiled
-    // into a jar shipped with `--jars` lives in the user classloader, which that path
-    // cannot see, so it fails with a SerializedLambda ClassCastException on a real
-    // cluster. Every lineage block is stored with tellMaster = true, so the driver's own
-    // bookkeeping already knows them all and the filter runs here.
-    val parts = master.getMatchingBlockIds({
-      case RDDBlockId(id, _) => id == tapId
-      case _ => false
-    }, askStorageEndpoints = false).collect {
+    val parts = TitianSQL.blockIdsOf(master, tapId).collect {
       case RDDBlockId(_, split) => split
     }.distinct.sorted
     val locations =
@@ -446,13 +486,7 @@ object TitianSQL {
 
   private def allBlockIds(graph: CaptureGraph): Seq[BlockId] = {
     val master = graph.spark.sparkContext.env.blockManager.master
-    allTapIds(graph).flatMap { tapId =>
-      // driver-side filtering; see tapBlocks for why this must not reach an executor
-      master.getMatchingBlockIds({
-        case RDDBlockId(id, _) => id == tapId
-        case _ => false
-      }, askStorageEndpoints = false)
-    }
+    allTapIds(graph).flatMap(tapId => TitianSQL.blockIdsOf(master, tapId))
   }
 
   /** Drop all lineage blocks captured for this query (long sessions accumulate).

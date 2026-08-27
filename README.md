@@ -90,6 +90,23 @@ technique.
 
 ## Getting started
 
+### The 15-minute demo, on a real cluster
+
+Needs Docker and nothing else — no Spark, no JDK, no Python:
+
+```bash
+scripts/cluster.sh up 3     # a standalone master + 3 workers, each its own container
+scripts/cluster.sh tour     # all 13 tools against it
+scripts/cluster.sh down
+```
+
+**[docs/demo.md](docs/demo.md)** walks through every tool one at a time with the output
+each produces — including the fuzzers side by side (19 of 20 iterations wasted against 0
+of 20), reading inside a Python UDF, and reproducing Titian's under-30% capture overhead
+on two million rows. Every command there was run to produce the output shown.
+
+### From a checkout
+
 Requirements: JDK 17+, and a Spark 4.1.x installation if you want to run on a cluster.
 `bin/bootstrap` fetches a project-local JDK, sbt and Spark distribution into `tools/`
 so the build never depends on what happens to be on your `PATH`:

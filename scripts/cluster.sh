@@ -2,7 +2,8 @@
 # Bring up a real Spark standalone cluster running BigAsterisk, and submit into it.
 #
 #   scripts/cluster.sh up [workers]     start master + N workers + history server
-#   scripts/cluster.sh tour             run the platform tour on the cluster
+#   scripts/cluster.sh tour             run every tool on the cluster
+#   scripts/cluster.sh tour titian      run only the tools you name
 #   scripts/cluster.sh run <cmd> [...]  any client command (bigsift, benchmark, pyspark)
 #   scripts/cluster.sh status           what the master sees
 #   scripts/cluster.sh logs [service]   follow logs
@@ -32,8 +33,9 @@ case "${1:-up}" in
     ;;
 
   tour)
-    # --rm: the client is a job, not a service
-    $COMPOSE run --rm submit tour
+    shift
+    # --rm: the client is a job, not a service. Extra arguments name the tools to run.
+    $COMPOSE run --rm submit tour "$@"
     ;;
 
   run)
