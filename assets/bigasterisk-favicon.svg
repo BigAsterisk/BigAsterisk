@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 176 176" role="img" aria-label="BigAsterisk favicon">
+<title>BigAsterisk favicon</title>
+  <g transform="translate(88 88)" fill="none" stroke-linecap="round">
+    <g><line x1="0" y1="-20" x2="0" y2="-36" stroke="#BA7517" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#EF9F27" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#EF9F27" stroke-width="12"/></g>
+    <g transform="rotate(60)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#993C1D" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#D85A30" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#D85A30" stroke-width="12"/></g>
+    <g transform="rotate(120)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#993556" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#D4537E" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#D4537E" stroke-width="12"/></g>
+    <g transform="rotate(180)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#534AB7" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#7F77DD" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#7F77DD" stroke-width="12"/></g>
+    <g transform="rotate(240)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#185FA5" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#378ADD" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#378ADD" stroke-width="12"/></g>
+    <g transform="rotate(300)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#0F6E56" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#1D9E75" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#1D9E75" stroke-width="12"/></g>
+    <circle cx="0" cy="0" r="9" fill="#2C2C2A" stroke="none"/>
+  </g>
+</svg>

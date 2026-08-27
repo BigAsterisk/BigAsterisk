@@ -6,6 +6,12 @@
 set -e
 
 MASTER_URL="${SPARK_MASTER_URL:-spark://master:7077}"
+
+# py4j is found rather than named: its version travels with the Spark distribution, and
+# pinning it in the image would break on the next Spark bump for no reason.
+PY4J="$(ls "$SPARK_HOME"/python/lib/py4j-*-src.zip 2>/dev/null | head -1)"
+[ -n "$PY4J" ] && PYTHONPATH="$PYTHONPATH:$PY4J"
+export PYTHONPATH
 EVENT_LOG_DIR="${SPARK_EVENT_LOG_DIR:-/opt/bigasterisk/events}"
 
 # Every jar the platform ships, as one comma-separated --jars value. Shipping them with

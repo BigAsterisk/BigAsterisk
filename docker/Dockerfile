@@ -26,7 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip procps \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/python3 /usr/local/bin/python
-RUN pip3 install --no-cache-dir pyspark==4.1.2 jupyterlab nbconvert
+# PySpark is a ~400 MB wheel, and pip's default 15-second socket timeout is not enough
+# for it on an ordinary connection — the build fails halfway through the download.
+RUN pip3 install --no-cache-dir --retries 5 --timeout 120 \
+        pyspark==4.1.2 jupyterlab nbconvert
 
 WORKDIR /opt/bigasterisk
 COPY --from=build /build/jars jars

@@ -15,7 +15,7 @@ if [ -n "$JDK" ]; then
   export JAVA_HOME
 fi
 
-SPARK_HOME="${SPARK_HOME:-$ROOT/tools/spark-4.1.2-bin-hadoop3}"
+SPARK_HOME="${SPARK_HOME:-$(ls -d "$ROOT"/tools/spark-*-bin-hadoop* 2>/dev/null | head -1)}"
 if [ ! -d "$SPARK_HOME" ]; then
   echo "No Spark distribution at $SPARK_HOME. Run bin/bootstrap, or set SPARK_HOME." >&2
   exit 1
@@ -28,7 +28,10 @@ export PYSPARK_PYTHON="$PYTHON"
 
 # Use the Spark distribution's own PySpark rather than a separately installed copy, so
 # the notebooks run against exactly the Spark the jars were built for.
-PYTHONPATH="$SPARK_HOME/python:$SPARK_HOME/python/lib/py4j-0.10.9.9-src.zip:$ROOT/python"
+# py4j is found rather than named: its version travels with the Spark distribution,
+# and pinning it here would break on the next Spark bump for no reason.
+PY4J="$(ls "$SPARK_HOME"/python/lib/py4j-*-src.zip 2>/dev/null | head -1)"
+PYTHONPATH="$SPARK_HOME/python:$PY4J:$ROOT/python"
 export PYTHONPATH
 export BIGASTERISK_HOME="$ROOT"
 

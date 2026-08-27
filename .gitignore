@@ -13,6 +13,7 @@ examples/data/airport.csv
 examples/data/weather.csv
 examples/data/student.txt
 tpcds/data/
+tpcds/ablation.csv
 *.classpath
 
 # Benchmark harness output

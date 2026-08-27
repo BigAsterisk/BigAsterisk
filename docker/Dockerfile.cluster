@@ -60,7 +60,7 @@ RUN set -eu; \
 
 ENV SPARK_HOME=/opt/spark \
     BIGASTERISK_HOME=/opt/bigasterisk \
-    PYTHONPATH=/opt/bigasterisk/python:/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.9-src.zip \
+    PYTHONPATH=/opt/bigasterisk/python:/opt/spark/python \
     PATH=/opt/spark/bin:/opt/spark/sbin:$PATH \
     PYSPARK_PYTHON=python3
 

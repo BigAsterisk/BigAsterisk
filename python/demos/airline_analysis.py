@@ -7,6 +7,7 @@
 
 import os
 import sys
+import tempfile
 import time
 
 from pyspark.sql import SparkSession
@@ -86,7 +87,9 @@ def run(spark):
 
     # Written out and read back: a file scan is what provenance capture attaches to, and
     # it is also how the real feed arrives.
-    root = os.environ.get("AIRLINE_DATA", "/tmp/bigasterisk-airline")
+    root = os.environ.get(
+        "AIRLINE_DATA",
+        os.path.join(tempfile.gettempdir(), "bigasterisk-airline"))
     for name, df in (("flights", flights), ("airports", airports), ("carriers", carriers)):
         path = os.path.join(root, name)
         if not os.path.isdir(path):

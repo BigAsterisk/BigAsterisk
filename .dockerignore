@@ -1,0 +1,23 @@
+# What the image build does not need. Without this the whole checkout is sent to the
+# daemon on every build — including the project-local toolchain in tools/, which is
+# gigabytes, and the build output that the image rebuilds from source anyway.
+.git
+.github
+tools/
+target/
+*/target/
+**/target/
+project/target/
+project/project/
+site/
+docs/api/
+tpcds/data/
+__pycache__/
+**/__pycache__/
+*.pyc
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+benchmarks-results.*

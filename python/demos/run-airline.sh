@@ -12,7 +12,7 @@ if [ -n "$JDK" ]; then
   if [ -d "$JDK/Contents/Home" ]; then JAVA_HOME="$JDK/Contents/Home"; else JAVA_HOME="$JDK"; fi
   export JAVA_HOME
 fi
-SPARK_HOME="${SPARK_HOME:-$ROOT/tools/spark-4.1.2-bin-hadoop3}"
+SPARK_HOME="${SPARK_HOME:-$(ls -d "$ROOT"/tools/spark-*-bin-hadoop* 2>/dev/null | head -1)}"
 export SPARK_HOME
 PYSPARK_PYTHON="${PYSPARK_PYTHON:-$ROOT/tools/python/bin/python3}"
 [ -x "$PYSPARK_PYTHON" ] || PYSPARK_PYTHON="$(command -v python3)"

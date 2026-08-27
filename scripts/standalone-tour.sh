@@ -20,7 +20,7 @@ if [ -n "$JDK" ]; then
   export JAVA_HOME
 fi
 
-SPARK_HOME="${SPARK_HOME:-$ROOT/tools/spark-4.1.2-bin-hadoop3}"
+SPARK_HOME="${SPARK_HOME:-$(ls -d "$ROOT"/tools/spark-*-bin-hadoop* 2>/dev/null | head -1)}"
 if [ ! -x "$SPARK_HOME/sbin/start-master.sh" ]; then
   echo "No Spark distribution at $SPARK_HOME. Run bin/bootstrap, or set SPARK_HOME." >&2
   exit 1

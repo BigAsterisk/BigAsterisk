@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 96" role="img" aria-label="BigAsterisk horizontal lockup">
+<title>BigAsterisk horizontal lockup</title>
+  <g transform="translate(48 48) scale(0.5)" fill="none" stroke-linecap="round">
+    <g><line x1="0" y1="-20" x2="0" y2="-36" stroke="#BA7517" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#EF9F27" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#FAC775" stroke-width="12"/></g>
+    <g transform="rotate(60)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#993C1D" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#D85A30" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#F0997B" stroke-width="12"/></g>
+    <g transform="rotate(120)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#993556" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#D4537E" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#ED93B1" stroke-width="12"/></g>
+    <g transform="rotate(180)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#534AB7" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#7F77DD" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#AFA9EC" stroke-width="12"/></g>
+    <g transform="rotate(240)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#185FA5" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#378ADD" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#85B7EB" stroke-width="12"/></g>
+    <g transform="rotate(300)"><line x1="0" y1="-20" x2="0" y2="-36" stroke="#0F6E56" stroke-width="8"/><line x1="0" y1="-42" x2="0" y2="-56" stroke="#1D9E75" stroke-width="10"/><line x1="0" y1="-62" x2="0" y2="-76" stroke="#5DCAA5" stroke-width="12"/></g>
+    <circle cx="0" cy="0" r="9" fill="#2C2C2A" stroke="none"/>
+  </g>
+  <text x="112" y="50" text-anchor="start" dominant-baseline="central" font-family="Inter, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="42" font-weight="600" letter-spacing="-0.5" fill="#2C2C2A">BigAsterisk</text>
+</svg>

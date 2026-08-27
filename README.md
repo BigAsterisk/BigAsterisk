@@ -90,7 +90,18 @@ technique.
 
 ## Getting started
 
-### The 15-minute demo, on a real cluster
+**[docs/setup.md](docs/setup.md)** covers the three ways in — notebooks with Docker, a
+real cluster with Docker, or a checkout for building and changing the code. None of them
+asks you to install Spark, a JDK or Python by hand.
+
+### The notebooks, with Docker
+
+```bash
+docker build -t bigasterisk -f docker/Dockerfile .
+docker run --rm -p 8888:8888 bigasterisk        # JupyterLab on :8888
+```
+
+### A real cluster, with Docker
 
 Needs Docker and nothing else — no Spark, no JDK, no Python:
 

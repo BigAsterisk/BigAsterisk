@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 IMAGE="${BIGASTERISK_IMAGE:-bigasterisk-cluster:latest}"
 NAMESPACE="${BIGASTERISK_NAMESPACE:-bigasterisk}"
 
-SPARK_HOME="${SPARK_HOME:-$ROOT/tools/spark-4.1.2-bin-hadoop3}"
+SPARK_HOME="${SPARK_HOME:-$(ls -d "$ROOT"/tools/spark-*-bin-hadoop* 2>/dev/null | head -1)}"
 if [ ! -x "$SPARK_HOME/bin/spark-submit" ]; then
   echo "No Spark distribution at $SPARK_HOME. Run bin/bootstrap, or set SPARK_HOME." >&2
   exit 1
