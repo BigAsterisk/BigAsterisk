@@ -5,11 +5,9 @@
 
 **A unified debugging and testing platform for Apache Spark.**
 
-!!! tip "Quick Demo"
+!!! tip ""
 
-    [**A worked example**](notebook.md) — a quarter of a million flights, three joins,
-    two Python UDFs, one planted fault, and thirteen tools narrowing it down. Real
-    output from a real cluster run; nothing to install to read it.
+    [**Quick demo**](notebook.md)
 
 BigAsterisk brings thirteen research systems for debugging and testing data-intensive
 scalable computing — built between 2016 and 2024 at UCLA and Virginia Tech — into a

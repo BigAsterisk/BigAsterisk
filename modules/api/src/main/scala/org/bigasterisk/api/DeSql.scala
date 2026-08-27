@@ -34,6 +34,16 @@ trait QueryStep {
   def schema: StructType
 
   /**
+   * The whole sub-query this step computes, as a plan tree.
+   *
+   * [[detail]] is the step's *own* operator — a join condition, a grouping list. This is
+   * everything beneath it as well, which is what "the sub-query at this point" actually
+   * means: the scans it reads, the filters already applied, the joins already made.
+   * Printing it answers "what have I got here?" without running anything.
+   */
+  def plan: String
+
+  /**
    * The intermediate rows produced at this step.
    *
    * Materialising this runs the sub-query rooted here — the work up to this point in

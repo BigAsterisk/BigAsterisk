@@ -58,7 +58,7 @@ class DeSqlEngine extends DeSqlSupport {
           operator = node.operator,
           detail = node.detail,
           childIds = node.childIndexes,
-          plan = node.plan,
+          logical = node.plan,
           classic = classic)
     }
   }
@@ -227,19 +227,22 @@ private[desql] class Spark4QueryStep(
     override val operator: String,
     override val detail: String,
     override val childIds: Seq[Int],
-    private val plan: LogicalPlan,
+    private val logical: LogicalPlan,
     private val classic: ClassicSparkSession) extends QueryStep {
 
-  override def schema: StructType = plan.schema
+  override def schema: StructType = logical.schema
+
+  /** The sub-query at this point, as a plan tree — everything beneath this step. */
+  override def plan: String = logical.treeString
 
   override lazy val data: DataFrame = {
-    if (DeSqlEngine.hasOuterReferences(plan)) {
+    if (DeSqlEngine.hasOuterReferences(logical)) {
       throw new UnsupportedOperationException(
         s"Step $id ($operator) is part of a correlated subquery: its plan reads " +
         "attributes from the enclosing query, so it cannot be executed on its own. " +
         "Inspect the enclosing step instead.")
     }
-    ClassicDataset.ofRows(classic, plan)
+    ClassicDataset.ofRows(classic, logical)
   }
 
   // The step's own conditions, plus any inside a profiled Python UDF it calls. A
@@ -247,9 +250,9 @@ private[desql] class Spark4QueryStep(
   // anything that reasons about which records took which arm; bound to the columns the
   // call site passes, it becomes an ordinary condition like the rest.
   override lazy val branches: Seq[Branch] =
-    (DeSqlEngine.branchConditions(plan) ++ UdfAnalysis.internalBranches(plan, classic))
+    (DeSqlEngine.branchConditions(logical) ++ UdfAnalysis.internalBranches(logical, classic))
       .distinct
-      .map(condition => new Spark4Branch(condition, plan.children.head, classic))
+      .map(condition => new Spark4Branch(condition, logical.children.head, classic))
 
   override def toString: String =
     s"[$id] $operator ${if (detail.isEmpty) "" else s"— $detail"}"

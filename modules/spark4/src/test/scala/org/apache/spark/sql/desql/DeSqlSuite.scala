@@ -194,4 +194,38 @@ class DeSqlSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     val byDf = engine.decompose(spark.sql("SELECT cid FROM orders WHERE amount > 100"))
     byText.map(_.operator) shouldBe byDf.map(_.operator)
   }
+
+  test("a step shows the whole sub-query beneath it, not only its own operator") {
+    val steps = engine.decompose(spark.sql(
+      "SELECT c.name, COUNT(*) AS n FROM orders o JOIN customers c ON o.cid = c.cid " +
+        "WHERE o.amount > 100 GROUP BY c.name"))
+
+    val filter = steps.find(_.operator == "Filter").getOrElse(fail("no Filter step"))
+
+    // `detail` is the step's own condition
+    filter.detail should include("amount")
+
+    // `plan` is everything it computes: the join beneath it, and the scans beneath that
+    filter.plan should include("Filter")
+    filter.plan should include("Join")
+    filter.plan should include("Relation")
+    filter.plan.linesIterator.size should be > 3
+  }
+
+  test("a leaf step's sub-query is just its scan") {
+    val steps = engine.decompose(spark.sql("SELECT cid FROM orders WHERE amount > 100"))
+    val leaf = steps.head
+
+    leaf.plan should include("Relation")
+    leaf.plan should not include "Filter"
+  }
+
+  test("the data at a step is the rows flowing through it") {
+    val steps = engine.decompose(spark.sql("SELECT cid FROM orders WHERE amount > 100"))
+    val filter = steps.find(_.operator == "Filter").getOrElse(fail("no Filter step"))
+
+    // eight of the twelve orders exceed 100, and the step carries them all
+    filter.data.count() shouldBe 8
+    filter.schema.fieldNames should contain("amount")
+  }
 }

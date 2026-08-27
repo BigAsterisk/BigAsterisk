@@ -74,6 +74,17 @@ class QueryStep:
         return [j.apply(i) for i in range(j.size())]
 
     @property
+    def plan(self):
+        """The whole sub-query this step computes, as a plan tree.
+
+        ``detail`` is the step's *own* operator — a join condition, a grouping list.
+        This is everything beneath it as well: the scans it reads, the filters already
+        applied, the joins already made. Printing it answers "what have I got here?"
+        without running anything.
+        """
+        return self._j.plan()
+
+    @property
     def branches(self):
         """The conditional sub-operations of this step.
 

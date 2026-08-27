@@ -45,6 +45,7 @@ object Analyze {
       oracle: Option[String] = None,
       watch: Option[String] = None,
       tool: String = "desql",
+      step: Option[Int] = None,
       limit: Int = 20,
       master: Option[String] = None)
 
@@ -157,9 +158,37 @@ object Analyze {
       options: Options): Unit = tool match {
 
     case "desql" =>
-      BigAsterisk.desql(spark).decompose(spark.sql(query)).foreach { step =>
-        println(f"  [${step.id}%d] ${step.operator}%-12s ${step.detail.take(70)}")
-        step.branches.foreach(b => println(s"        branch: ${b.description.take(66)}"))
+      val steps = BigAsterisk.desql(spark).decompose(spark.sql(query))
+
+      options.step match {
+        case Some(wanted) =>
+          // one step, in full: what it computes, what it produces, and the rows
+          val step = steps.find(_.id == wanted).getOrElse(
+            throw new IllegalArgumentException(
+              s"no step $wanted; this query has ${steps.size} (0 to ${steps.size - 1})"))
+
+          println(s"  [${step.id}] ${step.operator} ${step.detail}")
+          println()
+          println("  the sub-query at this point:")
+          step.plan.split("\n").foreach(line => println(s"    $line"))
+          println()
+          println(s"  schema: ${step.schema.fields.map(f =>
+            s"${f.name}: ${f.dataType.simpleString}").mkString(", ")}")
+          val rows = step.data.take(options.limit)
+          println(s"  ${step.data.count()} row(s); first ${rows.length}:")
+          rows.foreach(r => println(s"    $r"))
+          step.branches.foreach { branch =>
+            println(s"  branch ${branch.description}: ${branch.data.count()} record(s) take it")
+          }
+
+        case None =>
+          steps.foreach { step =>
+            println(f"  [${step.id}%d] ${step.operator}%-12s ${step.detail.take(70)}")
+            step.branches.foreach(b => println(s"        branch: ${b.description.take(66)}"))
+          }
+          println()
+          println(s"  --step N shows one of these in full: its sub-query, its schema, " +
+            s"and its rows (0 to ${steps.size - 1})")
       }
 
     case "titian" =>
@@ -314,6 +343,7 @@ object Analyze {
     case "--oracle" :: value :: rest   => parse(rest, options.copy(oracle = Some(value)))
     case "--watch" :: value :: rest    => parse(rest, options.copy(watch = Some(value)))
     case "--tool" :: value :: rest     => parse(rest, options.copy(tool = value.toLowerCase))
+    case "--step" :: value :: rest     => parse(rest, options.copy(step = Some(value.toInt)))
     case "--limit" :: value :: rest    => parse(rest, options.copy(limit = value.toInt))
     case "--master" :: value :: rest   => parse(rest, options.copy(master = Some(value)))
     case "--help" :: _ | "-h" :: _     => usage(); options.copy(tool = "help")
@@ -339,6 +369,7 @@ object Analyze {
       |  --watch  "predicate"    SQL over the input, for --tool watchpoint
       |  --tool   name           desql titian flowdebug bigsift optdebug perfdebug
       |                          watchpoint crash vega bigtest fuzz all   (default desql)
+      |  --step   n              with --tool desql: show that step's sub-query and rows
       |  --limit  n              rows to print per tool (default 20)
       |  --master url            override the Spark master
       |

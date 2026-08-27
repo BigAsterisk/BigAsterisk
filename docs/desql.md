@@ -68,6 +68,89 @@ becomes a single step.
 `step.schema` is available without materialising anything, so you can inspect the shape
 of an intermediate result without paying to compute it.
 
+## Seeing one step in full
+
+`decompose` gives you the shape of the query; each step then answers three different
+questions about itself.
+
+```python
+steps = bigasterisk.desql(spark).decompose(query)
+
+for step in steps:
+    print("[%d] %s  %s" % (step.id, step.operator, step.detail))
+```
+
+```text
+[0] Relation     orders AS o
+[1] Relation     customers AS c
+[2] Join         INNER ON (o.cid = c.cid)
+[3] Filter       (o.amount > 100)
+[4] Aggregate    c.name, count(1) AS n GROUP BY c.name
+```
+
+`detail` is the step's **own** operator — a join condition, a grouping list. To see the
+whole sub-query at that point, ask for its plan:
+
+```python
+print(steps[3].plan)
+```
+
+```text
+Filter (amount#2 > 100)
++- Join Inner, (cid#1 = cid#10)
+   :- SubqueryAlias o
+   :  +- Relation [oid#0,cid#1,amount#2] csv
+   +- SubqueryAlias c
+      +- Relation [cid#10,name#11] csv
+```
+
+And to see the **data** flowing through it — the point of the whole exercise — every step
+is a DataFrame:
+
+```python
+steps[3].data.show()          # the rows at that point
+steps[3].data.count()         # how many there are
+steps[3].schema               # what they look like
+steps[3].data.filter("amount > 300").show()    # it is an ordinary DataFrame
+```
+
+```text
++---+---+------+---+-----+
+|oid|cid|amount|cid| name|
++---+---+------+---+-----+
+| o1| c1|   420| c1|Alice|
+| o2| c2|   250| c2|  Bob|
+| o4| c1|   310| c1|Alice|
++---+---+------+---+-----+
+```
+
+Materialising a step runs the query **up to that point and no further**, so working
+backwards from a wrong answer costs only the part of the pipeline you are still
+suspicious of.
+
+Each step's branches carry their own data too — the records that took one arm of a
+condition:
+
+```python
+for branch in steps[3].branches:
+    print(branch.description, branch.data.count())
+```
+
+```text
+(o.amount > 100)        8
+(NOT (o.amount > 100))  4
+```
+
+From the command line, `--step` shows all of this for one step at once:
+
+```bash
+bin/bigasterisk analyze \
+  --table orders=examples/data/orders.txt \
+  --schema orders="oid STRING, cid STRING, amount INT" \
+  --query "SELECT cid, SUM(amount) AS total FROM orders GROUP BY cid" \
+  --tool desql --step 1
+```
+
 ## Limitations
 
 - **Correlated subqueries.** A subquery that references the enclosing query carries
