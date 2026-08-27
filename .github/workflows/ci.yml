@@ -134,6 +134,12 @@ jobs:
       - name: Run PySpark tests
         run: python/tests/run.sh
 
+      # Outputs in a committed notebook bloat every diff and carry whatever paths the
+      # machine that ran them had. The docs site gets its output from a rendered page
+      # instead; see scripts/render-notebook-page.py.
+      - name: Notebooks carry no stored output
+        run: python3 scripts/check-notebooks-clean.py
+
       # Every notebook ends in assertions, so executing them is a real check that the
       # tools still do what the notebooks say — not a smoke test.
       - name: Execute notebooks
