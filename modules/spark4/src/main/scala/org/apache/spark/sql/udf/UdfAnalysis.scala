@@ -83,6 +83,25 @@ object UdfAnalysis {
     case _ => None
   }
 
+
+  /**
+   * The functions whose *result* `condition` tests against a literal.
+   *
+   * A caller that has already rewritten such a test into conditions on the function's
+   * arguments has covered that function's paths, and adding its branches again would
+   * cross the two sets into combinations that contradict each other — a path enumerator
+   * would then spend its budget on conjunctions no input can satisfy.
+   */
+  def testedFunctions(condition: Expression): Set[String] =
+    condition.collect {
+      case EqualTo(u: PythonUDF, _: Literal) => u.name
+      case EqualTo(_: Literal, u: PythonUDF) => u.name
+      case u: PythonUDF if u.dataType == BooleanType => u.name
+      case EqualTo(u: ScalaUDF, _: Literal) => ScalaUdfAnalysis.nameOf(u)
+      case EqualTo(_: Literal, u: ScalaUDF) => ScalaUdfAnalysis.nameOf(u)
+      case u: ScalaUDF if u.dataType == BooleanType => ScalaUdfAnalysis.nameOf(u)
+    }.toSet
+
   /**
    * The branch conditions inside `plan`'s user-defined functions, as predicates over the
    * columns the call site passes.
@@ -93,15 +112,19 @@ object UdfAnalysis {
    *
    * A condition that cannot be bound and resolved is dropped rather than approximated.
    */
-  def internalBranches(plan: LogicalPlan, spark: ClassicSparkSession): Seq[Expression] = {
+  def internalBranches(
+      plan: LogicalPlan,
+      spark: ClassicSparkSession,
+      exclude: Set[String] = Set.empty): Seq[Expression] = {
     if (plan.children.size != 1) return Nil
     val child = plan.children.head
 
-    profiled(plan).flatMap { call =>
-      call.profile.branches.flatMap { branch =>
-        bind(branch.condition, call, child, spark)
+    profiled(plan)
+      .filterNot(call => exclude.contains(call.profile.name))
+      .flatMap { call =>
+        call.profile.branches.flatMap(branch => bind(branch.condition, call, child, spark))
       }
-    }.distinct
+      .distinct
   }
 
   /**

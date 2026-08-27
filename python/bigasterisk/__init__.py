@@ -37,7 +37,7 @@ the Python path (``--py-files``).
 
 from bigasterisk.lineage import Lineage, TraceCursor
 from bigasterisk.bigsift import BigSift, BigSiftResult, ddmin
-from bigasterisk.desql import DeSql, QueryStep
+from bigasterisk.desql import DeSql, QueryStep, Branch
 from bigasterisk.watchpoint import Watchpoint, Watchpoints
 from bigasterisk.vega import Vega, VegaRun
 from bigasterisk.optdebug import OptDebug, OptDebugResult, SuspiciousOperation
@@ -62,6 +62,7 @@ __all__ = [
     "desql",
     "DeSql",
     "QueryStep",
+    "Branch",
     "watchpoints",
     "Watchpoint",
     "Watchpoints",

@@ -21,11 +21,16 @@ x-common: &common
   environment: &env
     SPARK_MASTER_URL: spark://master:7077
     SPARK_EVENT_LOG_DIR: /opt/bigasterisk/events
+    # Generated demo data goes on a shared volume, not a container-local path. A driver
+    # that writes Parquet to its own /tmp produces a directory the executors never see —
+    # every partition lands in whichever container wrote it.
+    AIRLINE_DATA: /opt/bigasterisk/data
   volumes:
     # Inputs must resolve to the same path on the driver and on every executor, so the
     # fixtures are mounted rather than copied into one role.
     - ../examples/data:/opt/bigasterisk/examples/data:ro
     - events:/opt/bigasterisk/events
+    - data:/opt/bigasterisk/data
 
 services:
   master:
@@ -86,3 +91,4 @@ services:
 
 volumes:
   events:
+  data:

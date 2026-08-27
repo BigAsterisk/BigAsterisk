@@ -497,7 +497,13 @@ object TitianSQL {
     if (!finalPlan(df).exists(_.isInstanceOf[TapResultExec])) return
     val graph = captureGraph(df)
     val master = graph.spark.sparkContext.env.blockManager.master
-    allBlockIds(graph).foreach(master.removeBlock)
+
+    // Removed by RDD id rather than by finding each block first. A tap id *is* an rdd
+    // id, so this drops exactly the tap's blocks in one message — where looking them up
+    // means an RPC whose answer Spark computes by iterating its block map, which is both
+    // slower and prone to failing under churn. Fault localisation releases after every
+    // operation it scores, so this path runs hundreds of times in one session.
+    allTapIds(graph).foreach(tapId => master.removeRdd(tapId, false))
   }
 
   /** (memoryBytes, diskBytes) currently held by this query's lineage blocks.

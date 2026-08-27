@@ -341,12 +341,9 @@ class LineageContext(@transient val sparkContext: SparkContext) extends Logging 
     val ids = capturedTapIds.toSet
     if (ids.nonEmpty) {
       val master = sparkContext.env.blockManager.master
-      // One lookup per tap rather than one filter over all of them: the shared helper
-      // knows about both hazards of this call — the closure that must not reach an
-      // executor, and the block map Spark iterates without a lock.
-      ids.toSeq.flatMap(id =>
-        org.apache.spark.sql.lineage.TitianSQL.blockIdsOf(master, id)
-      ).foreach(id => master.removeBlock(id))
+      // By rdd id: a tap id is an rdd id, so this drops exactly the tap's blocks in one
+      // message, with no lookup RPC to iterate the block map first.
+      ids.foreach(id => master.removeRdd(id, false))
       capturedTapIds.clear()
     }
   }

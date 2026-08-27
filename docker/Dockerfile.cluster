@@ -75,6 +75,7 @@ RUN chmod +x /cluster-entrypoint.sh
 
 # Daemons must stay in the foreground for Compose to supervise them, and a container
 # that reaps no zombies leaks executor processes on restart.
-ENV SPARK_NO_DAEMONIZE=1
+ENV AIRLINE_DATA=/tmp/bigasterisk-airline \
+    SPARK_NO_DAEMONIZE=1
 ENTRYPOINT ["/usr/bin/tini", "--", "/cluster-entrypoint.sh"]
 CMD ["help"]

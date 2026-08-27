@@ -87,6 +87,20 @@ case "${1:-help}" in
     submit "$@"
     ;;
 
+  airline)
+    # The airline pipeline and every tool on it, against the cluster.
+    mkdir -p "$EVENT_LOG_DIR"
+    exec "$SPARK_HOME/bin/spark-submit" \
+      --master "$MASTER_URL" \
+      --jars "$(jars)" \
+      --conf spark.eventLog.enabled=true \
+      --conf "spark.eventLog.dir=$EVENT_LOG_DIR" \
+      --conf "spark.executor.cores=${EXECUTOR_CORES:-2}" \
+      --conf "spark.executor.memory=${EXECUTOR_MEMORY:-2g}" \
+      --conf "spark.cores.max=${CORES_MAX:-6}" \
+      /opt/bigasterisk/python/demos/airline_analysis.py
+    ;;
+
   pydemo)
     # The PySpark front end against the cluster, including reading inside a Python UDF.
     mkdir -p "$EVENT_LOG_DIR"
@@ -124,6 +138,7 @@ BigAsterisk cluster image. Roles:
   bigsift [args]      run the BigSift CLI
   benchmark <name>    capture | ablation | fuzz
   submit <class>      submit any main class in the image
+  airline             a realistic airline pipeline, with every tool on it
   pydemo              the PySpark front end against the cluster, end to end
   pyspark             interactive PySpark shell attached to the cluster
   shell               a shell in the image

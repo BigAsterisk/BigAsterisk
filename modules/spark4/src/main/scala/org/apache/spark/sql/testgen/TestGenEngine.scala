@@ -265,9 +265,12 @@ class TestGenEngine extends TestGenSupport {
             UdfAnalysis.solveThrough(condition, child, spark).getOrElse(Seq(condition))
           }
 
-          // and a branch inside the UDF is a target in its own right, whether or not
-          // anything tests the function's result
-          child -> (solvable ++ UdfAnalysis.internalBranches(node.plan, spark)).distinct
+          // A branch inside a UDF is a target in its own right — unless the query already
+          // tests that function's result, in which case the rewrite above has covered its
+          // paths and adding them again would cross the two sets into contradictions.
+          val alreadyCovered = own.flatMap(UdfAnalysis.testedFunctions).toSet
+          child -> (solvable ++
+            UdfAnalysis.internalBranches(node.plan, spark, alreadyCovered)).distinct
         }
       }
       .filter { case (_, conditions) => conditions.nonEmpty }

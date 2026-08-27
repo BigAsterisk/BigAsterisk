@@ -100,6 +100,12 @@ scripts/cluster.sh tour     # all 13 tools against it
 scripts/cluster.sh down
 ```
 
+**[notebooks/airline_analysis.ipynb](notebooks/airline_analysis.ipynb)** is the fullest
+worked example: a quarter of a million flights, three joins, two Python UDFs, and one
+fault planted where it makes the answer look *almost* right. Thirteen tools take turns on
+it, each narrating what it is doing — the question narrows from "something is wrong" to
+"this record, and this branch of this function".
+
 **[docs/demo.md](docs/demo.md)** walks through every tool one at a time with the output
 each produces — including the fuzzers side by side (19 of 20 iterations wasted against 0
 of 20), reading inside a Python UDF, and reproducing Titian's under-30% capture overhead

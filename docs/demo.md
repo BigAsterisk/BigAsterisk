@@ -267,7 +267,27 @@ shaped by a declared distribution, so the generated records read like records.
 
 ---
 
-## Step 12 — The PySpark front end, and reading inside a UDF
+## Step 12 — A realistic pipeline: airline on-time performance
+
+The tour uses twelve rows so every answer fits on screen. This is the same thirteen tools
+on a quarter of a million flights, three joins and two Python UDFs — with a fault planted
+where it makes the answer look *almost* right:
+
+```bash
+scripts/cluster.sh run airline
+```
+
+Each tool states its question, its method, what it found, and how long it took. The
+narrated version, with the reasoning between the steps, is the notebook
+[`notebooks/airline_analysis.ipynb`](https://github.com/BigAsterisk/BigAsterisk/blob/main/notebooks/airline_analysis.ipynb).
+
+What to watch for: **two different faults, found by two different kinds of tool.** A
+malformed feed record — Titian traces thousands of flights, FlowDebug narrows to one and
+names the column, BigSift reduces to a single record. And a wrong *branch* in a UDF —
+which OptDebug ranks first, but only after the function has been read and the failing
+input narrowed.
+
+## Step 13 — The PySpark front end, and reading inside a UDF
 
 Everything above went through Scala. The same tools are available from Python:
 
@@ -306,7 +326,7 @@ function; `bigasterisk.udf.register` parses its source, and from then on
 becomes conditions on its *argument*. Without the profile, no input can be generated for
 it at all.
 
-## Step 13 — Reproduce a paper's overhead number
+## Step 14 — Reproduce a paper's overhead number
 
 ```bash
 scripts/cluster.sh run benchmark capture
@@ -336,13 +356,13 @@ scripts/cluster.sh run benchmark fuzz
   speedup         50.4x
 ```
 
-## Step 14 — Look at what ran
+## Step 15 — Look at what ran
 
 <http://localhost:18080> — the history server has every application, with stage timings
 and executor metrics. Useful for convincing yourself the work really happened out on the
 workers.
 
-## Step 15 — Tear down
+## Step 16 — Tear down
 
 ```bash
 scripts/cluster.sh down

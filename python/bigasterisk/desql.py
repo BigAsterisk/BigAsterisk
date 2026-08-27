@@ -74,6 +74,22 @@ class QueryStep:
         return [j.apply(i) for i in range(j.size())]
 
     @property
+    def branches(self):
+        """The conditional sub-operations of this step.
+
+        A step that passes every record through — a projection, say — tells you nothing
+        about which records a fault touched. Its branches do: of the records entering a
+        ``CASE WHEN``, only some take the first arm. Branches inside a user-defined
+        function appear here too, once the function has been read (see
+        ``bigasterisk.udf``).
+
+        Empty for steps with no conditional expressions, and for steps with more than
+        one input.
+        """
+        j = self._j.branches()
+        return [Branch(j.apply(i), self._spark) for i in range(j.size())]
+
+    @property
     def data(self):
         """The intermediate rows at this step, as a PySpark DataFrame.
 
@@ -87,6 +103,27 @@ class QueryStep:
     def __repr__(self):
         detail = (" — %s" % self.detail) if self.detail else ""
         return "[%d] %s%s" % (self.id, self.operator, detail)
+
+
+class Branch:
+    """One conditional sub-operation of a step, and the records that take it."""
+
+    def __init__(self, jbranch, spark):
+        self._j = jbranch
+        self._spark = spark
+
+    @property
+    def description(self):
+        """The condition, as SQL text."""
+        return self._j.description()
+
+    @property
+    def data(self):
+        """The step's input records that satisfy this branch, as a DataFrame."""
+        return _wrap_dataframe(self._j.data(), self._spark)
+
+    def __repr__(self):
+        return "Branch(%s)" % self.description
 
 
 class DeSql:

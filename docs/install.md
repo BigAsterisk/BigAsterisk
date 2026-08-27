@@ -78,8 +78,13 @@ binding is selected.
 
 ## Notebooks
 
-There is a notebook for each tool in `notebooks/`, plus deeper dives into the SQL and
-RDD surfaces and one (`python_udfs.ipynb`) on reading inside a Python UDF. Each one runs on the committed fixtures and ends in assertions,
+There is a notebook for each tool in `notebooks/`, plus deeper dives into the SQL and RDD
+surfaces and one (`python_udfs.ipynb`) on reading inside a Python UDF.
+
+**Start with `airline_analysis.ipynb`** — a quarter of a million flights, three joins, two
+Python UDFs and one planted fault, with all thirteen tools taking turns on it. Each states
+its question, its method and what it found, so it reads as an investigation rather than a
+feature list. Each one runs on the committed fixtures and ends in assertions,
 so executing them is a real check rather than a demo:
 
 ```bash
