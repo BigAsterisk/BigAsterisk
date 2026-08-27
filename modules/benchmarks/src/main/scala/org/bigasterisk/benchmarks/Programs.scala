@@ -59,6 +59,11 @@ object Programs {
     // so that group's mean speed climbs far above walking pace
     override val oracle = Some("commute = 'onfoot' AND mean_speed > 15")
 
+    // a trip that took no time: the crash the fuzzing evaluations report on this program
+    override val crashRecord = Some(Map("trips" -> Row("crash", "p0", "2026-01-01", 10, 0)))
+
+    override val watch = Some("trips" -> "minutes < 10")
+
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val trips = (0 until count).map { i =>
         // a spread that lands in all three arms
@@ -95,6 +100,8 @@ object Programs {
         |JOIN locations l ON t.person = l.person
         |WHERE l.state = 'CA'
         |GROUP BY l.city, commute""".stripMargin
+
+    override val watch = Some("trips" -> "minutes < 10")
 
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val people = math.max(4, count / 10)
@@ -141,6 +148,8 @@ object Programs {
 
     override val oracle = Some("label LIKE 'corrupt%'")
 
+    override val watch = Some("students" -> "score > 90")
+
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val students = (0 until count).map { i =>
         Row(s"s${i % math.max(1, count / 5)}", random.nextInt(101))
@@ -169,6 +178,8 @@ object Programs {
     override val corrupt = Some(Map("ratings" -> Row("m0", 100000)))
 
     override val oracle = Some("total > 10000")
+
+    override val watch = Some("ratings" -> "rating = 5")
 
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val ratings = (0 until count).map { i =>
@@ -213,6 +224,8 @@ object Programs {
         |  FROM income WHERE zipcode = '90024')
         |GROUP BY band""".stripMargin)
 
+    override val watch = Some("income" -> "age > 65")
+
     // Every band boundary appears in the data. An age band fault is only visible on the
     // boundary it moves, and a generator that never produces one leaves the fault
     // dormant — the benchmark would then measure nothing while appearing to pass.
@@ -248,6 +261,11 @@ object Programs {
         |  FROM salaries)
         |WHERE salary < 300""".stripMargin
 
+    // the parse failure the fuzzing evaluations report on this program
+    override val crashRecord = Some(Map("salaries" -> Row("not-a-number")))
+
+    override val watch = Some("salaries" -> "raw LIKE '$%'")
+
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val salaries = (0 until count).map { _ =>
         val value = random.nextInt(500)
@@ -273,11 +291,20 @@ object Programs {
         |WHERE word <> ''
         |GROUP BY word""".stripMargin
 
+    override val watch = Some("lines" -> "length(line) > 40")
+
+    // Line lengths have a heavy tail, as text does: most are short and a few are very
+    // long. That is where computation skew comes from — the cost of splitting a line is
+    // its length — so a generator producing uniform lines would leave a skew-attribution
+    // tool nothing to attribute.
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val vocabulary = IndexedSeq("spark", "lineage", "provenance", "fuzz", "debug", "query")
-      val lines = (0 until count).map { _ =>
-        Row((0 to random.nextInt(6)).map(_ => vocabulary(random.nextInt(vocabulary.length)))
-          .mkString(" "))
+      val lines = (0 until count).map { i =>
+        // deliberately not at index 0: the first record of a task pays for code
+        // generation and task setup, so a long line there would be indistinguishable
+        // from that artefact
+        val words = if (i % 50 == 17) 200 + random.nextInt(300) else random.nextInt(6)
+        Row((0 to words).map(_ => vocabulary(random.nextInt(vocabulary.length))).mkString(" "))
       }
       Map("lines" -> lines)
     }
@@ -302,6 +329,8 @@ object Programs {
     override val corrupt = Some(Map("weather" -> Row("00001", "01-01", 9999.0)))
 
     override val oracle = Some("delta > 6000")
+
+    override val watch = Some("weather" -> "snow > 250")
 
     def rows(count: Int, random: Random): Map[String, Seq[Row]] = {
       val readings = (0 until count).map { i =>

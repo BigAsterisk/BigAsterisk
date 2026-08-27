@@ -414,7 +414,7 @@ Deliberate differences from the upstream implementations:
 - **Failures are exceptions, not oracle violations.** A campaign finds inputs that make
   the query throw; checking that an answer is *correct* is BigSift's and OptDebug's job.
 
-## Reading inside a Python UDF
+## Reading inside a user-defined function
 
 Three of the tools here stop at the same boundary, and all three stop at it for the same
 reason: a user-defined function is opaque to plan analysis. FlowDebug needs taint inside
@@ -422,11 +422,22 @@ one, OptDebug needs operation-level taint inside one, BigTest needs path constra
 one. Upstream, each crosses it by analysing code — source-to-source rewriting for the
 first two, JPF/SPF over bytecode for the third.
 
-For a **Python** UDF, the code is Python source and the front end can read it directly.
-`python/bigasterisk/udf.py` parses the function and records what it found;
-`org.bigasterisk.api.UdfRegistry` holds the result; `org.apache.spark.sql.udf.UdfAnalysis`
-binds it back to the query by substituting each parameter for the argument expression the
-call site passes, then resolving the result with Spark's own analyzer.
+Both languages are readable here, by different routes.
+
+**Python.** The code is source the front end can read. `python/bigasterisk/udf.py` parses
+the function and records what it found, and `org.bigasterisk.api.UdfRegistry` holds the
+result.
+
+**Scala and Java.** The code is bytecode on this side. Spark requires a UDF's closure to
+be serializable, so its `writeReplace` yields a `java.lang.invoke.SerializedLambda`
+naming the class and method the body was compiled into; that class loads from the
+classloader, and `org.apache.spark.sql.udf.ScalaUdfAnalysis` abstractly interprets the
+method over a symbolic stack — parameters are symbols, constants are values, and a
+conditional jump forks the analysis. Nothing has to be registered.
+
+Either way, `org.apache.spark.sql.udf.UdfAnalysis` binds the profile back to the query by
+substituting each parameter for the argument expression the call site passes, then
+resolving the result with Spark's own analyzer.
 
 | Analysis | What it yields | Which tool uses it |
 |---|---|---|
@@ -436,8 +447,18 @@ call site passes, then resolving the result with Spark's own analyzer.
 
 Differences from the upstream analyses, stated plainly:
 
-- **Python only.** A Scala or Java UDF arrives on the JVM as a closure whose logic is
-  bytecode. Those are still black boxes, and each consumer says so rather than guessing.
+- **A subset of each language, not all of it.** Python: comparisons, boolean operators,
+  null tests, membership, `+ - * /`, a handful of string and numeric functions, a
+  conditional expression in a `return`, locals, and free variables resolving to
+  constants. Scala/Java bytecode: comparisons against constants, arithmetic, the common
+  `String` methods, null tests, boxing, and the branch structure `&&`/`||`/`!` compile
+  into. Loops, exception handlers and unmodelled calls are refused in both.
+- **Bytecode carries positions, not names.** A profile derived from a Scala closure calls
+  its parameters `arg0`, `arg1`; they bind to the call site by position, so only the
+  reported text differs.
+- **Not a symbolic executor.** The bytecode analysis enumerates paths over a symbolic
+  stack with no SMT solving and no heap modelling. It reaches the shapes UDFs in these
+  evaluations actually take; it is not a replacement for JPF/SPF.
 - **Row-at-a-time UDFs only.** A pandas UDF's parameters are Series rather than values,
   so the same source means something different. Refused by eval type.
 - **Static, not dynamic.** Taint here reports what *can* influence the result, not what

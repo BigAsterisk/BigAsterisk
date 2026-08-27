@@ -65,6 +65,29 @@ trait Benchmark {
    */
   def oracle: Option[String] = None
 
+  /**
+   * Successive revisions of the query, oldest first.
+   *
+   * A developer fixing a fault *is* a revision history, so the default is the faulty
+   * program followed by the correct one — which is exactly the case incremental
+   * re-execution exists for: two queries that differ in one place.
+   */
+  def revisions: Seq[String] = faulty.toSeq :+ query
+
+  /**
+   * A record that makes the query throw, for the crash-guard fault model.
+   *
+   * Separate from [[corrupt]]: a record that makes the answer *wrong* and one that makes
+   * the query *die* are different faults, and only some of these programs can die.
+   */
+  def crashRecord: Option[Map[String, Row]] = None
+
+  /**
+   * A table and a predicate over its columns worth watching — the kind of record a
+   * developer would set a watchpoint on. `(table, condition)`.
+   */
+  def watch: Option[(String, String)] = None
+
   /** Deterministic input data. The same seed must produce the same rows. */
   def rows(count: Int, random: Random): Map[String, Seq[Row]]
 

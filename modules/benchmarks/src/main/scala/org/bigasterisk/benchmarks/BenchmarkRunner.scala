@@ -92,7 +92,10 @@ object BenchmarkRunner {
     titian(spark, benchmark),
     bigsift(spark, benchmark),
     optdebug(spark, benchmark),
-    flowdebug(spark, benchmark))
+    flowdebug(spark, benchmark),
+    perfdebug(spark, benchmark),
+    vega(spark, benchmark),
+    bigdebug(spark, benchmark))
 
   // ---------------------------------------------------------------------------
   // One measurement per tool. Each reports the quantity that tool's own evaluation
@@ -192,6 +195,122 @@ object BenchmarkRunner {
       Measurement(b.name, "FlowDebug",
         top.map(t => f"${t.score}%.2f top influence").getOrElse("nothing ranked"),
         s"${ranked.size} ranked; ${top.map(_.reason).getOrElse("—")}")
+    }
+
+  /**
+   * Computation skew over the program's own input.
+   *
+   * The profiled DataFrame is substituted for the table it came from, so the query runs
+   * unchanged and the cost is attributed to the records that entered it. A single
+   * partition, because per-record attribution across partitions is a sum of unrelated
+   * clocks.
+   */
+  private def perfdebug(spark: SparkSession, b: Benchmark): Measurement =
+    attempt(b, "PerfDebug") {
+      val tables = b.register(spark, DefaultRows)
+      val (table, df) = tables.maxBy { case (_, d) => d.count() }
+
+      // Warm the pipeline first. The first record through a fused stage pays for code
+      // generation and JIT, which on a 400-row input is two orders of magnitude above
+      // the rest — measured cold, every program looks 100x skewed and none of it is
+      // about the data.
+      spark.sql(b.query).collect()
+
+      val profile = BigAsterisk.perfdebug(spark).profile(df.coalesce(1), topK = 3)
+      try {
+        profile.df.createOrReplaceTempView(table)
+        spark.sql(b.query).collect()
+        Measurement(b.name, "PerfDebug", f"${profile.skew}%.1fx skew",
+          s"over ${profile.records} records of $table")
+      } finally {
+        df.createOrReplaceTempView(table)
+      }
+    }
+
+  /**
+   * How much of a revision the previous run leaves reusable.
+   *
+   * The revision history is the fault and its fix, which is the case this exists for:
+   * two queries differing in one place, run one after the other.
+   */
+  private def vega(spark: SparkSession, b: Benchmark): Measurement =
+    if (b.revisions.size < 2) {
+      Measurement(b.name, "Vega", "—", "only one revision of this program", "n/a")
+    } else attempt(b, "Vega") {
+      b.register(spark, DefaultRows)
+      val incremental = BigAsterisk.vega(spark)
+      try {
+        b.revisions.init.foreach(revision => incremental.run(spark.sql(revision)).df.collect())
+        val latest = incremental.run(spark.sql(b.revisions.last))
+        latest.df.collect()
+        Measurement(b.name, "Vega",
+          f"${latest.reuseRatio * 100}%.0f%% reused",
+          s"${latest.reused.size} of ${latest.steps} parts across " +
+            s"${b.revisions.size} revisions")
+      } finally incremental.clear()
+    }
+
+  /**
+   * The interactive primitives: a guard that names the record that killed the query
+   * where the program can die, and a watchpoint on the records flowing past where it
+   * cannot.
+   */
+  private def bigdebug(spark: SparkSession, b: Benchmark): Measurement =
+    b.crashRecord match {
+      case Some(planted) => crashCulprit(spark, b, planted.keys.head)
+      case None          => watchpoint(spark, b)
+    }
+
+  private def crashCulprit(spark: SparkSession, b: Benchmark, table: String): Measurement =
+    attempt(b, "BigDebug") {
+      val tables = b.register(spark, DefaultRows)
+      val withCrash = tables(table)
+        .union(spark.createDataFrame(
+          spark.sparkContext.parallelize(b.crashRecord.get.get(table).toSeq, 1),
+          tables(table).schema))
+        .coalesce(1)
+
+      val guard = BigAsterisk.crashCulprit(spark).guard(withCrash)
+      val ansi = spark.conf.get("spark.sql.ansi.enabled")
+      spark.conf.set("spark.sql.ansi.enabled", "true")
+      spark.sparkContext.setLogLevel("OFF")   // the failure is expected
+      try {
+        guard.df.createOrReplaceTempView(table)
+        spark.sql(b.query).collect()
+        Measurement(b.name, "BigDebug", "no crash",
+          "the planted record did not make this program throw", "n/a")
+      } catch {
+        case NonFatal(_) =>
+          val culprit = guard.culprit
+          Measurement(b.name, "BigDebug",
+            culprit.map(_ => "culprit found").getOrElse("crashed, no culprit"),
+            culprit.map(c => s"partition ${c.partitionId} record ${c.recordIndex}: ${c.row}")
+              .getOrElse("the guard captured nothing"),
+            if (culprit.isDefined) "ok" else "error")
+      } finally {
+        spark.sparkContext.setLogLevel("ERROR")
+        spark.conf.set("spark.sql.ansi.enabled", ansi)
+        tables(table).createOrReplaceTempView(table)
+      }
+    }
+
+  private def watchpoint(spark: SparkSession, b: Benchmark): Measurement =
+    b.watch match {
+      case None =>
+        Measurement(b.name, "BigDebug", "—", "no watch condition for this program", "n/a")
+      case Some((table, condition)) => attempt(b, "BigDebug") {
+        val tables = b.register(spark, DefaultRows)
+        val watched = BigAsterisk.watchpoints(spark)
+          .watch(tables(table), org.apache.spark.sql.functions.expr(condition))
+        try {
+          watched.df.createOrReplaceTempView(table)
+          spark.sql(b.query).collect()
+          Measurement(b.name, "BigDebug", s"${watched.hits} records watched",
+            s"$table where $condition")
+        } finally {
+          tables(table).createOrReplaceTempView(table)
+        }
+      }
     }
 
   // ---------------------------------------------------------------------------

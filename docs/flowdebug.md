@@ -106,8 +106,10 @@ site looks like. Anything the analysis cannot read is reported and the whole cal
 implicated, which is the over-approximation this is meant to avoid but is still the
 honest answer. See [Python UDFs](udfs.md) for what is read and what is refused.
 
-A Scala UDF arrives on the JVM as a closure whose logic is bytecode. Those remain
-opaque, and every column the call reads stays implicated.
+A Scala UDF is read too, from its bytecode rather than from source — the closure is
+serializable, so it names the method it was compiled into, and that method is abstractly
+interpreted. What the analysis cannot read stays a black box, with every column the call
+reads still implicated.
 
 ## Limitations
 

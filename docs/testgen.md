@@ -146,12 +146,13 @@ than hidden.
 - **No SMT solver, so no path outside the fragment above.** A constraint that the
   interval-and-equality solver cannot express makes its path unsupported rather than
   silently wrong.
-- **Scala UDFs are still opaque.** The original drives a customized Java PathFinder and
-  cvc5 over the *bytecode* of user-defined functions. For a **Python** UDF, registering
-  it with [`bigasterisk.udf`](udfs.md) puts its branches and paths in reach: a condition
-  on the function's *result* is replaced by the conditions on its *arguments* that
-  produce that result, and the solver takes it from there. A Scala UDF is bytecode on
-  the JVM, and a condition testing one remains unsolvable.
+- **UDF paths are recovered, within a subset.** The original drives a customized Java
+  PathFinder and cvc5 over the *bytecode* of user-defined functions. Here a condition on
+  a function's *result* is replaced by the conditions on its *arguments* that produce
+  that result, and the solver takes it from there — from Python source, or from Scala
+  bytecode read directly. Loops, exception handlers and unmodelled calls are refused
+  rather than approximated, and a path the analysis could not read exactly is never
+  solved through. See [Seeing inside a UDF](udfs.md).
 - **Single-table constraints.** A constraint relating columns of two tables — a join
   condition — is not solved for.
 - **Spark Connect.** Branch conditions are read from the driver-side analyzed plan,
@@ -167,8 +168,9 @@ decompiler last released in 2001, and on linux/amd64 native binaries.
 
 That machinery exists to reach *inside a UDF*. Under a SQL front end most conditions are
 in the plan already, in a form Catalyst hands over, and the technique is applied to that
-surface. For the conditions that are *not* — the ones inside a Python UDF — the function's
-own source is read instead of its bytecode, which reaches the same place by a shorter
-route: see [Python UDFs](udfs.md).
+surface. For the conditions that are *not*, the function itself is read — Python source,
+or Scala bytecode abstractly interpreted over a symbolic stack. That reaches the common
+shapes without a symbolic executor, and refuses the rest out loud rather than solving
+them wrongly: see [Seeing inside a UDF](udfs.md).
 See
 [PROVENANCE.md](https://github.com/BigAsterisk/BigAsterisk/blob/main/PROVENANCE.md).

@@ -1,4 +1,4 @@
-# Seeing inside a Python UDF
+# Seeing inside a UDF
 
 A user-defined function is opaque to plan analysis. To Catalyst,
 
@@ -11,7 +11,8 @@ constraints to solve, and every argument looks equally responsible for the resul
 techniques here stop at exactly that boundary — and the papers behind them cross it by
 reading the function's code.
 
-For a **Python** UDF, that code is Python source, and the front end can read it.
+Both Python and Scala UDFs are readable here, by different routes — because the code
+lives in different places.
 
 ```python
 import bigasterisk
@@ -27,6 +28,8 @@ spark.udf.register("classify", classify, StringType())
 bigasterisk.udf.register(spark, classify)
 ```
 
+## Python: parse the source
+
 `register` parses the function and records what it found:
 
 ```
@@ -37,6 +40,33 @@ Nothing else changes about how you write queries. From here on the engines know 
 function has two branches over `amount`, three paths, that `amount` influences the
 result, and — because every path is exact — that `classify(amount) = 'high'` means
 `amount > 1000`.
+
+## Scala and Java: read the bytecode
+
+Nothing to register. A Scala UDF's closure is serializable — Spark requires it — so its
+`writeReplace` yields a `SerializedLambda` naming the class and method the body was
+compiled into. That class is on the classloader, so the bytecode loads, and the method is
+abstractly interpreted over a symbolic stack: parameters are symbols, constants are
+values, and a conditional jump forks the analysis.
+
+```scala
+val classify = udf((amount: Int) => if (amount > 1000) "high" else "low")
+spark.udf.register("classify", classify)
+// nothing else to do
+```
+
+The result is the same profile a Python UDF produces, so everything downstream treats
+them identically. Conditions read as the source wrote them: the opposite arm of a branch
+inverts the operator rather than wrapping the text in `NOT`, so `amount > 1000` and
+`amount <= 1000` are one branch and its negation rather than two unrelated strings.
+
+A captured value — a threshold held in a local — is folded in as the constant it is:
+
+```scala
+val threshold = 500
+val over = udf((amount: Int) => if (amount > threshold) "over" else "under")
+// the branch reads (arg0 > 500)
+```
 
 ## What it changes
 
@@ -84,12 +114,18 @@ result, and — because every path is exact — that `classify(amount) = 'high'`
 
 ## What it reads
 
-`if` / `elif` / `else` over comparisons of parameters against literals; `and`, `or`,
-`not`; `is None`; `in` over a literal collection, and `in` as a substring test;
-arithmetic with `+ - * /`; `len`, `abs`, `.upper()`, `.lower()`, `.strip()`,
+**Python.** `if` / `elif` / `else` over comparisons of parameters against literals;
+`and`, `or`, `not`; `is None`; `in` over a literal collection, and `in` as a substring
+test; arithmetic with `+ - * /`; `len`, `abs`, `.upper()`, `.lower()`, `.strip()`,
 `.startswith()`, `.endswith()`; a conditional expression in a `return`; assignments to
 locals; and free variables — module-level constants and closed-over values — that
 resolve to scalars.
+
+**Scala and Java.** Comparisons of an argument against a constant, integer and
+floating-point arithmetic, `equals`, `startsWith`, `endsWith`, `contains`, `length`,
+`toUpperCase`, `toLowerCase`, `trim`, `Math.abs`, null tests, boxing and unboxing, and
+the branch structure `&&`, `||` and `!` compile into. Values the closure captured are
+folded in as constants.
 
 A path through the function is the conjunction of the branch outcomes leading to one
 `return`, including the implicit `return None` when control falls off the end.
@@ -120,11 +156,18 @@ nothing, which is worse than no analysis at all. Nothing is assumed.
 
 ## Limitations
 
-- **Python only.** The analysis has to happen where the code is. A Scala or Java UDF
-  arrives on the JVM as a closure whose logic is bytecode; reading that is a different
-  analysis, and those remain black boxes rather than being guessed at.
+- **Loops and exception handlers are refused** by the bytecode analysis, along with any
+  call it does not model. A refusal is recorded and the affected paths are marked
+  inexact, exactly as on the Python side.
+- **A Scala UDF's parameters have no names.** Bytecode carries argument *positions*, not
+  the names the source used, so a profile derived from bytecode calls them `arg0`,
+  `arg1`. They bind to the call site by position, which is what matters; only the
+  reported text differs.
 - **Row-at-a-time UDFs only.** A pandas UDF's parameters are Series, not values, so the
   same source means something different. They are left alone.
+- **A registered profile wins over a derived one.** If you register a profile for a name
+  a Scala UDF also uses, the registered one is used: someone who described the function
+  explicitly knows more about it than its bytecode reveals.
 - **Profiles are keyed by name.** A plan carries a Python UDF's name, so a name is what
   the two sides can agree on. Two different functions registered under one name are
   indistinguishable, and the later registration wins — register under the name the query
@@ -137,8 +180,8 @@ nothing, which is worse than no analysis at all. Nothing is assumed.
 
 ## Inspecting a profile
 
-`analyze` does everything `register` does except talk to the JVM, so a profile can be
-examined — or tested — without a Spark session:
+For a Python UDF, `analyze` does everything `register` does except talk to the JVM, so a
+profile can be examined — or tested — without a Spark session:
 
 ```python
 profile = bigasterisk.udf.analyze(classify)
