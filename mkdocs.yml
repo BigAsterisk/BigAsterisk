@@ -7,6 +7,8 @@ docs_dir: docs
 
 theme:
   name: material
+  logo: assets/bigasterisk-mark-dark.svg
+  favicon: assets/bigasterisk-favicon.svg
   icon:
     repo: fontawesome/brands/github
   features:
@@ -21,15 +23,15 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
@@ -83,3 +85,6 @@ markdown_extensions:
 # docs/api/ before building, so it serves under /api/ alongside the manual:
 #   bin/sbt doc && rm -rf docs/api && cp -r modules/spark4/target/scala-2.13/api docs/api \
 #     && mkdocs build
+
+extra_css:
+  - stylesheets/brand.css

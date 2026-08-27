@@ -1,4 +1,10 @@
-# BigAsterisk
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)"
+            srcset="docs/assets/bigasterisk-horizontal-dark.svg">
+    <img src="docs/assets/bigasterisk-horizontal.svg" alt="BigAsterisk" width="420">
+  </picture>
+</p>
 
 [![CI](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/ci.yml/badge.svg)](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/ci.yml)
 [![Documentation](https://github.com/BigAsterisk/BigAsterisk/actions/workflows/docs.yml/badge.svg)](https://bigasterisk.github.io/BigAsterisk/)

@@ -1,4 +1,7 @@
-# BigAsterisk
+<div class="ba-hero" markdown>
+![BigAsterisk](assets/bigasterisk-horizontal.svg#only-light)
+![BigAsterisk](assets/bigasterisk-horizontal-dark.svg#only-dark)
+</div>
 
 **A unified debugging and testing platform for Apache Spark.**
 

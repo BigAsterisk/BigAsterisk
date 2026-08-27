@@ -1,0 +1,108 @@
+/* The site's colours are the logo's colours.
+ *
+ * The mark is a six-hue asterisk — amber, terracotta, magenta, violet, blue, teal — drawn
+ * in warm ink (#2C2C2A) on warm paper (#F1EFE8). Material's stock indigo sat beside that
+ * rather than with it, so every value below is lifted from the SVGs themselves rather
+ * than chosen to look similar.
+ */
+
+:root {
+  /* the six ray families, in the order they appear around the mark */
+  --ba-amber:      #EF9F27;
+  --ba-terracotta: #D85A30;
+  --ba-magenta:    #D4537E;
+  --ba-violet:     #534AB7;
+  --ba-blue:       #378ADD;
+  --ba-teal:       #1D9E75;
+
+  --ba-ink:   #2C2C2A;   /* the wordmark on the light lockup */
+  --ba-paper: #F1EFE8;   /* the wordmark on the dark lockup */
+}
+
+/* Violet leads: it is the mark's centre of gravity, and it carries white text at the
+ * contrast the header needs. Terracotta accents, because it is the furthest hue from it
+ * that still belongs to the same drawing. */
+[data-md-color-primary=custom] {
+  --md-primary-fg-color:        #534AB7;
+  --md-primary-fg-color--light: #7F77DD;
+  --md-primary-fg-color--dark:  #3F368F;
+  --md-primary-bg-color:        #FFFFFF;
+  --md-primary-bg-color--light: #FFFFFFB3;
+}
+
+[data-md-color-accent=custom] {
+  --md-accent-fg-color:            #D85A30;
+  --md-accent-fg-color--transparent: #D85A301A;
+  --md-accent-bg-color:            #FFFFFF;
+  --md-accent-bg-color--light:     #FFFFFFB3;
+}
+
+/* Light: the logo's paper, warmed slightly so code blocks and tables can sit a shade
+ * darker without looking grey. */
+[data-md-color-scheme=default] {
+  --md-default-bg-color:        #FBFAF6;
+  --md-default-fg-color:        #2C2C2A;
+  --md-default-fg-color--light: #2C2C2ABF;
+  --md-default-fg-color--lighter: #2C2C2A80;
+  --md-default-fg-color--lightest: #2C2C2A1F;
+
+  --md-code-bg-color: #F1EFE8;
+  --md-code-fg-color: #2C2C2A;
+
+  --md-typeset-a-color: #534AB7;
+  --md-footer-bg-color: #2C2C2A;
+  --md-footer-bg-color--dark: #232321;
+}
+
+/* Dark: the logo's ink, and its paper as the text. */
+[data-md-color-scheme=slate] {
+  --md-hue: 40;                      /* warm, to match the ink rather than blue-grey */
+  --md-default-bg-color:        #1F1F1D;
+  --md-default-fg-color:        #F1EFE8;
+  --md-default-fg-color--light: #F1EFE8BF;
+  --md-default-fg-color--lighter: #F1EFE880;
+  --md-default-fg-color--lightest: #F1EFE81F;
+
+  --md-code-bg-color: #2C2C2A;
+  --md-code-fg-color: #F1EFE8;
+
+  --md-typeset-a-color: #AFA9EC;      /* the violet family's light ray, for contrast */
+  --md-footer-bg-color: #171716;
+}
+
+/* Syntax highlighting drawn from the same six hues, so a code block belongs to the page
+ * rather than importing another palette. */
+[data-md-color-scheme=default] .highlight {
+  --md-code-hl-keyword-color:  #534AB7;
+  --md-code-hl-string-color:   #0F6E56;
+  --md-code-hl-number-color:   #993C1D;
+  --md-code-hl-comment-color:  #2C2C2A99;
+  --md-code-hl-function-color: #185FA5;
+  --md-code-hl-name-color:     #2C2C2A;
+}
+
+[data-md-color-scheme=slate] .highlight {
+  --md-code-hl-keyword-color:  #AFA9EC;
+  --md-code-hl-string-color:   #5DCAA5;
+  --md-code-hl-number-color:   #F0997B;
+  --md-code-hl-comment-color:  #F1EFE899;
+  --md-code-hl-function-color: #85B7EB;
+  --md-code-hl-name-color:     #F1EFE8;
+}
+
+/* The header logo is the mark alone; give it room to read at small sizes. */
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.6rem;
+  width: auto;
+}
+
+/* The home page opens with the horizontal lockup rather than an <h1>. */
+.ba-hero {
+  margin: 0 0 1.4rem;
+}
+
+.ba-hero img {
+  width: min(420px, 100%);
+  height: auto;
+}

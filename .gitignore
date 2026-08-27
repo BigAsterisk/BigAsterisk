@@ -29,6 +29,11 @@ __pycache__/
 *.pyc
 .ipynb_checkpoints/
 
+# Logo sources. The variants the site and the README actually use are committed under
+# docs/assets/; the working directory they come from is not. Anchored, so it does not
+# also swallow docs/assets/.
+/assets/
+
 # Editors / OS
 .idea/
 .vscode/
