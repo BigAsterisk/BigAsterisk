@@ -110,6 +110,27 @@ lazy val optdebug = (project in file("modules/optdebug"))
     )
   )
 
+// The subject programs the published evaluations use, and a harness that runs every
+// tool over them. Depends on all of them, because the point is to measure all of them.
+lazy val benchmarks = (project in file("modules/benchmarks"))
+  .dependsOn(api, spark4, bigsift, optdebug)
+  .settings(
+    name := "bigasterisk-benchmarks",
+    commonSettings,
+    libraryDependencies ++= Seq(
+      "org.apache.spark" %% "spark-core" % sparkVersion,
+      "org.apache.spark" %% "spark-sql"  % sparkVersion,
+      "org.scalatest"    %% "scalatest"  % "3.2.19" % Test
+    ),
+    run / fork := true,
+    run / javaOptions ++= sparkJavaOptions,
+    Test / envVars ++= Map(
+      "SPARK_HOME" ->
+        ((ThisBuild / baseDirectory).value / "tools" / "spark-4.1.2-bin-hadoop3").getAbsolutePath,
+      "SPARK_SCALA_VERSION" -> "2.13"
+    )
+  )
+
 lazy val examples = (project in file("examples"))
   .dependsOn(api, spark4, bigsift, optdebug)
   .settings(
@@ -131,7 +152,7 @@ lazy val examples = (project in file("examples"))
 // The manual (mkdocs) links to it as api/index.html; see docs/install.md.
 lazy val root = (project in file("."))
   .enablePlugins(ScalaUnidocPlugin)
-  .aggregate(api, spark4, bigsift, optdebug, examples)
+  .aggregate(api, spark4, bigsift, optdebug, benchmarks, examples)
   .settings(
     name := "bigasterisk",
     publish / skip := true,

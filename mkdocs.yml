@@ -53,6 +53,7 @@ nav:
   - Python UDFs: udfs.md
   - Running on a cluster: cluster.md
   - Reference:
+      - Published subject programs: benchmarks.md
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md
       - Ablation & performance: ablation.md

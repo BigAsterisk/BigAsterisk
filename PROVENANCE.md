@@ -456,6 +456,50 @@ Differences from the upstream analyses, stated plainly:
   never applied. Nothing is registered by default, so a query behaves exactly as it did
   before until a profile is registered for it.
 
+## The published subject programs
+
+Each paper's evaluation is an evaluation *on particular programs*. Those programs are
+ported into `modules/benchmarks`, and `BenchmarkRunner` runs every tool over them —
+see [docs/benchmarks.md](docs/benchmarks.md) for the results.
+
+| Program | Papers | Upstream source |
+|---|---|---|
+| CommuteType | BigTest, BigFuzz, DepFuzz, NaturalFuzz | `examples/benchmarks/CommuteType.scala`, `subject/programs/CommuteType.scala` |
+| CommuteTypeFull | DepFuzz, NaturalFuzz | `examples/benchmarks/CommuteTypeFull.scala` |
+| IncomeAggregation | BigTest, BigFuzz, DepFuzz | `examples/benchmarks/IncomeAggregation.scala`, `sparkprogram/IncomeAggregate.scala` |
+| StudentGrade | BigTest, BigFuzz, DepFuzz | `examples/benchmarks/StudentGrade.scala`, `subject/programs/StudentGrades.scala` |
+| MovieRating | BigTest, BigFuzz, DepFuzz | `examples/benchmarks/MovieRating.scala`, `subject/programs/MovieRatingsCount.scala` |
+| FindSalary | BigTest, DepFuzz | `examples/benchmarks/FindSalary.scala`, `subject/programs/FindSalary.scala` |
+| WordCount | BigTest, BigFuzz, DepFuzz | `subject/programs/WordCount.scala` |
+| WeatherAnalysis | BigSift, BigTest | `evaluation/programs/WeatherAnalysis.scala`; the RDD form is in `SoccBenchmarksSuite` |
+
+Deliberate differences from the upstream programs:
+
+- **SQL, not RDD pipelines.** The originals parse a CSV line by column index and then
+  branch on the parsed value. The ports read a typed column and branch on it: parsing is
+  the front end's job here, and the branch is what the tools reason about. Arithmetic
+  that can throw is kept throwable — an integer division, a cast of a malformed string —
+  because those crashes are what the fuzzing evaluations look for.
+- **Generated inputs, not the papers' datasets.** The upstream datasets are not
+  redistributable and in several cases are not public. Generators are seeded and
+  deterministic, and deliberately produce values on the branch boundaries, because a
+  fault at a boundary is dormant in data that never reaches it.
+- **No baselines, so no ratios.** The harness reports what each tool found. Every
+  comparative claim in the papers — precision against plain provenance, faults found
+  against unguided generation, setup overhead against a framework run — needs the
+  baseline implemented, and none is. The results are stated as measurements and are not
+  described as reproductions.
+- **Two fault models, kept separate.** A mutated program for operation-level
+  localisation; a planted corrupt record for input isolation. A tool is skipped, and
+  says so, rather than being handed the fault model it was not designed for.
+
+**A measured gap this surfaced.** BigTest reaches 0% branch coverage on the four programs
+that branch on a computed value (`distance DIV minutes > 40`,
+`substring(raw, 1, 1) = '$'`). The solver here is an interval-and-equality domain per
+column and cannot invert arithmetic or string functions, so it reports those paths
+unsupported. The original drives cvc5 and would solve them. This is the clearest
+consequence of the missing SMT solver, and it is reported rather than hidden.
+
 ## Reproducing the artifact survey
 
 The upstream commits above were read from public repositories. To re-fetch any of them:

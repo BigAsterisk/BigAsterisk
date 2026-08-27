@@ -62,6 +62,12 @@ jobs:
       - name: Platform tour
         run: sbt -batch 'examples/runMain org.bigasterisk.examples.PlatformTour'
 
+      # The subject programs from the published evaluations. One program keeps the step
+      # short; the full sweep is a local command, since its value is the numbers rather
+      # than a pass/fail.
+      - name: Published subject programs
+        run: sbt -batch 'benchmarks/runMain org.bigasterisk.benchmarks.BenchmarkRunner StudentGrade'
+
       # `local[*]` runs executors inside the driver JVM, sharing its classloader. A real
       # standalone cluster does not, and a closure that only resolves under the driver's
       # classloader fails there — so the same tour is run again against a separate master

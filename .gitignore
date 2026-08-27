@@ -15,6 +15,10 @@ examples/data/student.txt
 tpcds/data/
 *.classpath
 
+# Benchmark harness output
+benchmarks-results.md
+benchmarks-results.csv
+
 # Docs build
 site/
 docs/api/

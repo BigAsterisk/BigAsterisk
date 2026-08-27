@@ -1,7 +1,7 @@
 package org.apache.spark.sql.influence
 
 import org.apache.spark.sql.{Column, DataFrame, Row}
-import org.apache.spark.sql.catalyst.expressions.{Expression, NamedExpression}
+import org.apache.spark.sql.catalyst.expressions.{Alias, Attribute, Expression, NamedExpression}
 import org.apache.spark.sql.catalyst.expressions.aggregate._
 import org.apache.spark.sql.catalyst.plans.logical.{Aggregate, LogicalPlan}
 import org.apache.spark.sql.classic.{ColumnConversions, ExpressionColumnNode, Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
@@ -150,11 +150,32 @@ class InfluenceEngine extends InfluenceSupport {
       faulty: Array[Row]): Seq[Seq[Any]] = {
     if (agg.groupingExpressions.isEmpty) return Seq(Seq.empty)
     val resultColumns = aggDf.schema.fieldNames
-    enrich(aggDf, agg.groupingExpressions.zip(keyNames))
+
+    // A grouping expression is usually already in the aggregate's output, under the name
+    // the query gave it. Reading it from there works whatever the expression is; adding
+    // it as a new column does not, because a computed key like
+    // `CONCAT(name, ...)` references the aggregation's *input* columns, which the output
+    // no longer has.
+    val projected: Option[Seq[String]] = {
+      val names = agg.groupingExpressions.map { grouping =>
+        agg.aggregateExpressions.collectFirst {
+          case alias: Alias if alias.child.semanticEquals(grouping) => alias.name
+          case attribute: Attribute if attribute.semanticEquals(grouping) => attribute.name
+        }
+      }
+      if (names.forall(_.isDefined)) Some(names.map(_.get)) else None
+    }
+
+    val (keyed, columns) = projected match {
+      case Some(names) => (aggDf, names)
+      case None        => (enrich(aggDf, agg.groupingExpressions.zip(keyNames)), keyNames)
+    }
+
+    keyed
       .collect()
       .filter(row => faulty.exists(f => resultColumns.forall(c =>
         f.get(f.fieldIndex(c)) == row.get(row.fieldIndex(c)))))
-      .map(keyOf(_, keyNames))
+      .map(keyOf(_, columns))
       .distinct
       .toSeq
   }
