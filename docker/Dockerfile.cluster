@@ -1,0 +1,68 @@
+# BigAsterisk on a real Spark standalone cluster.
+#
+# One image serves every role — master, worker, history server, and the client that
+# submits — because they must agree on the Spark build, the JDK and the platform jars.
+# Roles differ only by the command Compose gives them.
+#
+#   docker compose -f docker/compose.yaml up -d --scale worker=3
+#   docker compose -f docker/compose.yaml run --rm submit tour
+#
+# Spark comes from the same Apache archive `bin/bootstrap` uses, so a container and a
+# checkout run the identical build.
+
+ARG SPARK_VERSION=4.1.2
+ARG HADOOP_PROFILE=hadoop3
+
+# ---- build stage: compile the platform jars from source -----------------------
+FROM eclipse-temurin:17-jdk-jammy AS build
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN curl -sL https://github.com/sbt/sbt/releases/download/v1.10.7/sbt-1.10.7.tgz | tar xz
+
+# Sources only: the build must not depend on anything in the developer's working tree.
+COPY build.sbt .
+COPY project project
+COPY modules modules
+COPY examples examples
+
+RUN ./sbt/bin/sbt -batch package \
+    && mkdir -p /build/jars \
+    && find /build/modules /build/examples -name 'bigasterisk-*.jar' -exec cp {} /build/jars/ \; \
+    && cp "$(find /root/.cache/coursier -name 'fastutil-8.5.15.jar' | head -1)" \
+          /build/jars/fastutil.jar
+
+# ---- runtime stage ------------------------------------------------------------
+FROM eclipse-temurin:17-jdk-jammy
+ARG SPARK_VERSION
+ARG HADOOP_PROFILE
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates python3 python3-pip procps tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/local/bin/python
+
+RUN curl -sL "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}.tgz" \
+      | tar xz -C /opt \
+    && ln -s "/opt/spark-${SPARK_VERSION}-bin-${HADOOP_PROFILE}" /opt/spark
+
+ENV SPARK_HOME=/opt/spark \
+    BIGASTERISK_HOME=/opt/bigasterisk \
+    PYTHONPATH=/opt/bigasterisk/python:/opt/spark/python:/opt/spark/python/lib/py4j-0.10.9.9-src.zip \
+    PATH=/opt/spark/bin:/opt/spark/sbin:$PATH \
+    PYSPARK_PYTHON=python3
+
+WORKDIR /opt/bigasterisk
+COPY --from=build /build/jars jars
+COPY python python
+COPY notebooks notebooks
+COPY examples/data examples/data
+COPY modules/spark4/src/test/resources modules/spark4/src/test/resources
+COPY docker/cluster-entrypoint.sh /cluster-entrypoint.sh
+RUN chmod +x /cluster-entrypoint.sh
+
+# Daemons must stay in the foreground for Compose to supervise them, and a container
+# that reaps no zombies leaks executor processes on restart.
+ENV SPARK_NO_DAEMONIZE=1
+ENTRYPOINT ["/usr/bin/tini", "--", "/cluster-entrypoint.sh"]
+CMD ["help"]

@@ -1,0 +1,88 @@
+# A real Spark standalone cluster running BigAsterisk: a master, N workers in their own
+# containers, a history server, and a client that submits into it.
+#
+#   docker compose -f docker/compose.yaml up -d --scale worker=3
+#   docker compose -f docker/compose.yaml run --rm submit tour
+#   docker compose -f docker/compose.yaml down -v
+#
+# Why this exists: `local[*]` runs every executor inside the driver JVM, which hides the
+# failures that matter — closures that cannot deserialize under a separate classloader,
+# capture state that never crosses a process boundary, blocks that are never fetched over
+# the network. Those only appear when executors are genuinely elsewhere.
+
+x-image: &image
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.cluster
+  image: bigasterisk-cluster:latest
+
+x-common: &common
+  <<: *image
+  environment: &env
+    SPARK_MASTER_URL: spark://master:7077
+    SPARK_EVENT_LOG_DIR: /opt/bigasterisk/events
+  volumes:
+    # Inputs must resolve to the same path on the driver and on every executor, so the
+    # fixtures are mounted rather than copied into one role.
+    - ../examples/data:/opt/bigasterisk/examples/data:ro
+    - events:/opt/bigasterisk/events
+
+services:
+  master:
+    <<: *common
+    command: ["master"]
+    hostname: master
+    ports:
+      - "8080:8080"     # master UI: workers, applications, cores in use
+      - "7077:7077"     # submit endpoint, for spark-submit from the host
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -sf http://localhost:8080 > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker:
+    <<: *common
+    command: ["worker"]
+    environment:
+      <<: *env
+      SPARK_WORKER_CORES: "2"
+      SPARK_WORKER_MEMORY: "2g"
+    depends_on:
+      master:
+        condition: service_healthy
+    # no fixed container_name and no host port: `--scale worker=N` needs both free
+    ports:
+      - "8081"
+
+  history:
+    <<: *common
+    command: ["history"]
+    environment:
+      <<: *env
+      SPARK_HISTORY_OPTS: >-
+        -Dspark.history.fs.logDirectory=/opt/bigasterisk/events
+        -Dspark.history.ui.port=18080
+    ports:
+      - "18080:18080"   # completed applications, stage timings, executor metrics
+    depends_on:
+      master:
+        condition: service_healthy
+
+  # Client role. Not started by `up`: it runs a job and exits, which is what a client
+  # should do. Invoke it with `run --rm submit <command>`.
+  submit:
+    <<: *common
+    command: ["tour"]
+    environment:
+      <<: *env
+      EXECUTOR_CORES: "1"
+      EXECUTOR_MEMORY: "1g"
+      CORES_MAX: "4"
+    depends_on:
+      master:
+        condition: service_healthy
+    profiles: ["client"]
+
+volumes:
+  events:

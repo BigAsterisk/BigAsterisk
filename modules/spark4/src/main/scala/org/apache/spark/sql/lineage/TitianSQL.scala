@@ -267,10 +267,16 @@ object TitianSQL {
       spark: SparkSession, tapId: Int): RDD[T] = {
     val sc = spark.sparkContext
     val master = sc.env.blockManager.master
+    // askStorageEndpoints = false deliberately: with true, the driver forwards this
+    // filter to every executor, where Spark's own RPC deserializes it. A lambda compiled
+    // into a jar shipped with `--jars` lives in the user classloader, which that path
+    // cannot see, so it fails with a SerializedLambda ClassCastException on a real
+    // cluster. Every lineage block is stored with tellMaster = true, so the driver's own
+    // bookkeeping already knows them all and the filter runs here.
     val parts = master.getMatchingBlockIds({
       case RDDBlockId(id, _) => id == tapId
       case _ => false
-    }, askStorageEndpoints = true).collect {
+    }, askStorageEndpoints = false).collect {
       case RDDBlockId(_, split) => split
     }.distinct.sorted
     val locations =
@@ -441,10 +447,11 @@ object TitianSQL {
   private def allBlockIds(graph: CaptureGraph): Seq[BlockId] = {
     val master = graph.spark.sparkContext.env.blockManager.master
     allTapIds(graph).flatMap { tapId =>
+      // driver-side filtering; see tapBlocks for why this must not reach an executor
       master.getMatchingBlockIds({
         case RDDBlockId(id, _) => id == tapId
         case _ => false
-      }, askStorageEndpoints = true)
+      }, askStorageEndpoints = false)
     }
   }
 

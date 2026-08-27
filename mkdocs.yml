@@ -51,6 +51,7 @@ nav:
       - Fuzzing (BigFuzz, NaturalFuzz, DepFuzz): fuzzing.md
       - Test generation (BigTest, NaturalSym): testgen.md
   - Python UDFs: udfs.md
+  - Running on a cluster: cluster.md
   - Reference:
       - Command & flag reference: reference.md
       - TPC-DS coverage: tpcds.md

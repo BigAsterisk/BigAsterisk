@@ -45,15 +45,19 @@ object PlatformTour {
   private var failures = 0
 
   def main(args: Array[String]): Unit = {
-    val spark = BigAsterisk
-      .configure(
-        SparkSession.builder()
-          .master("local[2]")
-          .appName("BigAsterisk platform tour")
-          .config("spark.ui.enabled", "false")
-          .config("spark.sql.shuffle.partitions", "2")
-          .config("spark.task.maxFailures", "1"))
-      .getOrCreate()
+    val builder = SparkSession.builder()
+      .appName("BigAsterisk platform tour")
+      .config("spark.sql.shuffle.partitions", "2")
+      .config("spark.task.maxFailures", "1")
+
+    // Run in-process unless a master was supplied. `spark-submit --master spark://...`
+    // arrives as a system property, and hard-coding a master here would override it —
+    // which is what makes the same tour usable against a real standalone cluster.
+    if (!new org.apache.spark.SparkConf().contains("spark.master")) {
+      builder.master("local[2]").config("spark.ui.enabled", "false")
+    }
+
+    val spark = BigAsterisk.configure(builder).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
 
     // Fail with a sentence rather than a Spark stack trace if the fixtures are absent.
