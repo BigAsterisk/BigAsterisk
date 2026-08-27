@@ -39,6 +39,7 @@ theme:
 nav:
   - Home: index.md
   - Setup: setup.md
+  - Worked example (notebook): notebook.md
   - Guided demo: demo.md
   - Installation details: install.md
   - Usage: usage.md

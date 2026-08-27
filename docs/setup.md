@@ -36,7 +36,7 @@ history:    http://localhost:18080
 ```
 
 Open <http://localhost:8888> — no token, no password — and start with
-**`airline_analysis.ipynb`**: a quarter of a million flights, three joins, two Python UDFs
+**`airline_analysis.ipynb`** ([read it here first](notebook.md), output and all): a quarter of a million flights, three joins, two Python UDFs
 and one planted fault, with all thirteen tools taking turns on it. Watch
 <http://localhost:8080> while it runs and you will see the application appear and the
 work land on the workers.

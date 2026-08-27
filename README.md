@@ -128,8 +128,8 @@ scripts/cluster.sh tour     # smoke test: all 13 tools on the bundled example
 scripts/cluster.sh down
 ```
 
-**[notebooks/airline_analysis.ipynb](notebooks/airline_analysis.ipynb)** is the fullest
-worked example: a quarter of a million flights, three joins, two Python UDFs, and one
+**[The worked example](https://bigasterisk.github.io/BigAsterisk/notebook/)** —
+readable in a browser with all its output, no install — is the fullest demonstration: a quarter of a million flights, three joins, two Python UDFs, and one
 fault planted where it makes the answer look *almost* right. Thirteen tools take turns on
 it, each narrating what it is doing — the question narrows from "something is wrong" to
 "this record, and this branch of this function".
