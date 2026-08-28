@@ -80,11 +80,27 @@ check("minimisation makes ochiai viable", narrowed_ochiai.prime.is_branch is Tru
 
 check("the base table is restored", spark.table("orders").count() == 12)
 
-try:
-    o.localize(spark.sql(FAULTY), faulty_where="total < 0", base_table="orders")
-    check("base_table with a DataFrame is rejected", False, "no error raised")
-except ValueError as e:
-    check("base_table with a DataFrame is rejected", "query as text" in str(e), str(e)[:100])
+# The same computation as a DataFrame pipeline rather than a SQL string. Minimising it
+# means substituting into its plan, since it is already bound to `orders`; the answer
+# should not depend on which way the query was written.
+from pyspark.sql.functions import col, sum as sum_, when          # noqa: E402
+
+pipeline = (spark.table("orders")
+            .groupBy(col("cid"))
+            .agg(sum_(when(col("amount") > 1000, -col("amount"))
+                      .otherwise(col("amount"))).alias("total")))
+
+from_frame = o.localize(pipeline, faulty_where="total < 0", base_table="orders")
+check("a DataFrame pipeline minimises too", from_frame.minimised is True,
+      repr(from_frame))
+check("the DataFrame form narrows to the same culprit",
+      from_frame.failing_witnesses == narrowed.failing_witnesses,
+      "%s vs %s" % (from_frame.failing_witnesses, narrowed.failing_witnesses))
+check("the DataFrame form finds the same faulty branch",
+      from_frame.prime.is_branch and "1000" in (from_frame.prime.branch or ""),
+      repr(from_frame.prime))
+check("substituting a DataFrame leaves the session alone",
+      spark.table("orders").count() == 12)
 
 try:
     o.localize(FAULTY, faulty_where="total < 0", formula="nope")

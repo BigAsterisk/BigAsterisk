@@ -39,6 +39,8 @@ Every generated input is executed and the branch it was built for is checked, so
 
 import json
 
+from .query import as_query
+
 
 class TestCase:
     """An input built to drive the query down a particular path."""
@@ -87,6 +89,11 @@ class TestGen:
                  seed=0, distributions=None):
         """Generate a test suite for ``query``.
 
+        ``query`` is a DataFrame — the pipeline itself — or a SQL string. Generation
+        runs each candidate input through it, which for a DataFrame means substituting
+        into its plan, so each seed must be the DataFrame the pipeline was built from
+        (or a table it reads under that name).
+
         ``seeds`` maps each table name the query reads to a DataFrame. Schemas are
         required; the rows are the pool of natural witnesses.
 
@@ -110,6 +117,6 @@ class TestGen:
         for column, spec in (distributions or {}).items():
             jdists.put(column, spec)
         suite = self._support.generateJava(
-            query, jseeds, int(max_paths), int(rows_per_path), bool(natural), int(seed),
+            as_query(query), jseeds, int(max_paths), int(rows_per_path), bool(natural), int(seed),
             jdists)
         return TestSuite(json.loads(suite.json()))

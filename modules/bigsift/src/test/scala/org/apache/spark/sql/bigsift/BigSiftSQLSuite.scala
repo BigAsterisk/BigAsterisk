@@ -7,7 +7,8 @@
 package org.apache.spark.sql.bigsift
 
 import org.apache.spark.sql.{Row, SparkSession}
-import org.apache.spark.sql.lineage.TitianSQLExtension
+
+import org.bigasterisk.api.BigAsterisk
 import org.scalatest.BeforeAndAfterEach
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
@@ -23,13 +24,15 @@ class BigSiftSQLSuite extends AnyFunSuite with BeforeAndAfterEach with Matchers 
   }
 
   private def newSession(): SparkSession = {
-    spark = SparkSession.builder()
-      .master("local[2]")
-      .appName("bigsift-sql-test")
-      .config("spark.sql.extensions", classOf[TitianSQLExtension].getName)
-      .config("spark.sql.shuffle.partitions", "4")
-      .config("spark.titian.sql.capture", "false")
-      .getOrCreate()
+    // Through `configure` rather than by naming the one extension this suite happens to
+    // need: isolation re-runs the query through the binding, and the binding refuses to
+    // attach to a session that was not built with it.
+    spark = BigAsterisk.configure(
+      SparkSession.builder()
+        .master("local[2]")
+        .appName("bigsift-sql-test")
+        .config("spark.sql.shuffle.partitions", "4")
+        .config("spark.titian.sql.capture", "false")).getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     spark.read.schema("category STRING, amount INT").csv(salesCsv)
       .createOrReplaceTempView("sales")

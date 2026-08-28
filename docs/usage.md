@@ -89,6 +89,46 @@ Python UDFs are traced exactly — the eval nodes are 1:1, and record ids are re
 across their batching. Cached DataFrames (`df.cache()`) act as source boundaries: traces
 stop at, and `show()` re-reads, the cached rows.
 
+## A DataFrame is a query
+
+Every tool takes your pipeline in whichever form you built it — a DataFrame or a SQL
+string. That is worth stating explicitly because for several of them it is not free.
+
+Fuzzing, test generation and delta debugging are search procedures: they propose an
+input, run the query with it, look at the result, and repeat, hundreds of times. A SQL
+string re-runs by being re-parsed, so whatever is registered under `flights` at the time
+is what it reads. A DataFrame cannot: by the time you hold one its plan is analysed and
+bound, and `flights` has stopped being a name.
+
+So a DataFrame is re-run by substituting into its plan. The consequence for you is one
+rule: **each seed must be the DataFrame the pipeline was built from**, or a table it
+reads under that name, because that is what locates the leaf to replace.
+
+```python
+flights = spark.table("flights")
+carriers = spark.table("carriers")
+
+late = (flights.filter(col("arr_delay") > 60)
+        .join(carriers, flights["carrier"] == carriers["code"])
+        .groupBy(carriers["name"]).agg(count("*").alias("n")))
+
+bigasterisk.fuzz(spark).fuzz(late, {"flights": flights, "carriers": carriers})
+bigasterisk.testgen(spark).generate(late, {"flights": flights, "carriers": carriers})
+bigasterisk.optdebug(spark).localize(late, "n > 1000", base_table="flights")
+bigasterisk.BigSift(spark).debug("flights", late, lambda r: r["n"] > 1000)
+```
+
+Pass a seed the plan does not read and you get an error naming it, not a quiet result
+about the original data:
+
+```
+Fuzzing cannot substitute data for shipments: the query's plan does not read them.
+```
+
+Substituting into a DataFrame's plan registers nothing and changes nothing in your
+session. Substituting under a SQL string does register temporary views while it runs,
+and puts the originals back afterwards.
+
 ## BigSift — automated fault isolation
 
 ```python
@@ -139,6 +179,7 @@ Runnable demos live in `examples/` (`SalesAnalysis`, `OrderCustomerJoin`).
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar,fastutil.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.bigdebug.BigDebugExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   your-app.jar
 ```
 

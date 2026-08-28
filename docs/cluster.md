@@ -103,6 +103,7 @@ spark-submit \
   --master spark://your-master:7077 \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar,bigasterisk-optdebug.jar,fastutil.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   your-application.jar
 ```
 

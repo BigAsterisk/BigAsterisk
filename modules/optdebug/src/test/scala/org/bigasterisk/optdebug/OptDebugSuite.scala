@@ -2,7 +2,9 @@ package org.bigasterisk.optdebug
 
 import org.apache.spark.sql.{Row, SparkSession}
 
-import org.bigasterisk.api.{BigAsterisk, Suspiciousness}
+import org.apache.spark.sql.functions.{col, sum, when}
+
+import org.bigasterisk.api.{BigAsterisk, Query, Suspiciousness}
 
 import org.scalatest.BeforeAndAfterAll
 import org.scalatest.funsuite.AnyFunSuite
@@ -194,11 +196,41 @@ class OptDebugSuite extends AnyFunSuite with Matchers with BeforeAndAfterAll {
     spark.table("orders").collect().map(_.getString(0)).toSet shouldBe before
   }
 
-  test("the DataFrame form does not minimise") {
+  test("without a base table there is nothing to minimise over") {
     val result = OptDebug.localize(spark, spark.sql(faultyQuery), negativeTotal)
     result.minimised shouldBe false
     result.minimisedFrom shouldBe None
     result.failingWitnesses shouldBe 4L
+  }
+
+  test("a DataFrame pipeline minimises exactly as the SQL form does") {
+    // the same computation, built with the DataFrame API rather than written out. Its
+    // plan is bound to `orders` already, so minimising it means substituting into that
+    // plan rather than re-parsing text.
+    val orders = spark.table("orders")
+    val pipeline = orders
+      .groupBy(col("cid"))
+      .agg(sum(when(col("amount") > 1000, -col("amount")).otherwise(col("amount"))).as("total"))
+
+    val fromFrame = OptDebug.localize(spark, "orders", Query.Frame(pipeline), negativeTotal)
+    val fromText = OptDebug.localize(spark, "orders", faultyQuery, negativeTotal)
+
+    fromFrame.minimised shouldBe true
+    fromFrame.minimisedFrom shouldBe fromText.minimisedFrom
+    fromFrame.failingWitnesses shouldBe fromText.failingWitnesses
+    fromFrame.prime.get.isBranch shouldBe true
+    fromFrame.prime.get.branch.get should include("1000")
+  }
+
+  test("minimising a DataFrame pipeline leaves the session's views alone") {
+    val orders = spark.table("orders")
+    val before = orders.collect().map(_.getString(0)).toSet
+    val pipeline = orders
+      .groupBy(col("cid"))
+      .agg(sum(when(col("amount") > 1000, -col("amount")).otherwise(col("amount"))).as("total"))
+
+    OptDebug.localize(spark, "orders", Query.Frame(pipeline), negativeTotal)
+    spark.table("orders").collect().map(_.getString(0)).toSet shouldBe before
   }
 
   test("minimisation reports the narrowing in its summary") {

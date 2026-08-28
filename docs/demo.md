@@ -273,9 +273,10 @@ shaped by a declared distribution, so the generated records read like records.
 
 ## Step 12 — A realistic pipeline: airline on-time performance
 
-The tour uses twelve rows so every answer fits on screen. This is the same thirteen tools
-on a quarter of a million flights, three joins and two Python UDFs — with a fault planted
-where it makes the answer look *almost* right:
+The tour uses twelve rows so every answer fits on screen. This is the same thirteen
+tools on a quarter of a million flights — an ordinary PySpark job written with the
+DataFrame API, two `@udf` Python functions, two joins and a grouped aggregate, with a
+fault planted where it makes the answer look *almost* right:
 
 ```bash
 scripts/cluster.sh run airline
@@ -290,6 +291,13 @@ malformed feed record — Titian traces thousands of flights, FlowDebug narrows 
 names the column, BigSift reduces to a single record. And a wrong *branch* in a UDF —
 which OptDebug ranks first, but only after the function has been read and the failing
 input narrowed.
+
+Also worth watching: **how little the application changes.** The pipeline is one
+function taking its three inputs as arguments. Attaching a watchpoint or a profiler is
+then a substitution at the call site — `analysis(watched.df, carriers, airports)` — and
+nothing inside the analysis moves. Everything else is read from outside it, either
+through the API or through the BigAsterisk tab in the Spark UI at
+<http://localhost:4040>.
 
 ## Step 13 — The PySpark front end, and reading inside a UDF
 

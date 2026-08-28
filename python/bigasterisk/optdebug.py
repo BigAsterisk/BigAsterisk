@@ -37,6 +37,8 @@ From *OptDebug: Fault-Inducing Operation Isolation for Dataflow Applications*
 (SoCC 2021).
 """
 
+from .query import as_query
+
 
 class SuspiciousOperation:
     """One operation of a query, scored by how responsible it looks."""
@@ -156,20 +158,16 @@ class OptDebug:
         ``formula`` is ``"tarantula"`` (the default) or ``"ochiai"``.
 
         Pass ``base_table`` to narrow the failing records to those that actually cause
-        the failure before scoring. That needs the query as text, so ``df`` must be a
-        query string when you use it. Narrowing costs a query re-execution per subset
-        tested and makes ``"ochiai"`` viable, which it is not without it.
+        the failure before scoring. Narrowing re-runs the query with the table
+        restricted, once per subset tested, and makes ``"ochiai"`` viable, which it is
+        not without it. A DataFrame is re-run by substituting into its plan, so
+        ``base_table`` must name a table the pipeline actually reads.
         """
         opt = self._jvm.org.bigasterisk.optdebug.OptDebug
 
         if base_table is not None:
-            if not isinstance(df, str):
-                raise ValueError(
-                    "base_table needs the query as text: minimisation re-runs it with "
-                    "the table restricted, and a DataFrame's plan is already bound to "
-                    "the original relation")
             return OptDebugResult(opt.localize(
-                self._spark._jsparkSession, base_table, df, faulty_where,
+                self._spark._jsparkSession, base_table, as_query(df), faulty_where,
                 opt.formulaByName(formula)))
 
         if isinstance(df, str):

@@ -21,7 +21,7 @@ import java.io.File
 
 import scala.jdk.CollectionConverters._
 
-import org.bigasterisk.api.DeltaDebug
+import org.bigasterisk.api.{BigAsterisk, DeltaDebug, Query}
 import org.apache.spark.sql.{DataFrame, Row, SparkSession}
 import org.apache.spark.sql.functions.{col, monotonically_increasing_id}
 import org.apache.spark.sql.lineage.TitianSQL
@@ -69,16 +69,17 @@ object BigSiftSQL {
   def debug(
       spark: SparkSession,
       baseTable: String,
-      query: String,
+      query: Query,
       test: Row => Boolean,
       onProgress: Int => Unit = _ => ()): BigSiftSQLResult = {
 
     val base = spark.table(baseTable)
     val basePath = filePathOf(spark, baseTable)
+    val rerun = BigAsterisk.rerun(spark)
 
     // 1. capture run
     spark.conf.set("spark.titian.sql.capture", "true")
-    val df = spark.sql(query)
+    val df = rerun.frame(spark, query)
     val withIds = TitianSQL.collectWithLineage(df)
     val faulty = withIds.filter { case (r, _) => test(r) }
     if (faulty.isEmpty) {
@@ -109,8 +110,9 @@ object BigSiftSQL {
     def reproduces(subset: Seq[Long]): Boolean = subset.nonEmpty && {
       val keep = subset.toSet
       val restricted = withRid.filter(col("__rid").isInCollection(keep)).drop("__rid")
-      restricted.createOrReplaceTempView(baseTable)
-      try spark.sql(query).collect().exists(test) finally base.createOrReplaceTempView(baseTable)
+      rerun.withData(spark, query, Map(baseTable -> base), Map(baseTable -> restricted)) { d =>
+        d.collect().exists(test)
+      }
     }
     val causeRids =
       if (candidates.nonEmpty && reproduces(candidates))

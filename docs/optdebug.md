@@ -83,9 +83,11 @@ result.minimised_from   # 4 — what provenance returned
 result.failing_witnesses  # 1 — what actually causes the failure
 ```
 
-This needs the query as **text**, not a DataFrame: minimisation re-runs it with the
-table restricted, and a DataFrame's plan is already bound to the original relation. It
-costs one query re-execution per subset tested, which is why it is opt-in.
+`query` may be SQL text or the DataFrame pipeline itself. Minimisation re-runs it with
+the table restricted; a DataFrame is re-run by substituting into its plan, so
+`base_table` has to name a table the pipeline actually reads (see
+[Usage](usage.md#a-dataframe-is-a-query)). It costs one query re-execution per subset
+tested, which is why it is opt-in.
 
 ## Choosing a formula
 

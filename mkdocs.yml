@@ -48,7 +48,7 @@ nav:
       - Titian (data provenance): titian.md
       - BigSift (automated debugging): bigsift.md
       - DeSQL (step-through SQL): desql.md
-      - BigDebug (watchpoints): bigdebug.md
+      - BigDebug (interactive debugging): bigdebug.md
       - Vega (incremental re-execution): vega.md
       - OptDebug (operation isolation): optdebug.md
       - PerfDebug (computation skew): perfdebug.md

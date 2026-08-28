@@ -72,6 +72,7 @@ mkdocs build                 # static site -> site/
 spark-submit \
   --jars titian.jar,fastutil.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.bigdebug.BigDebugExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   --conf spark.titian.sql.capture=true \
   your-app.jar
 ```

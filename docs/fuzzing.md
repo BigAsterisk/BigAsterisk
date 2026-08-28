@@ -42,6 +42,15 @@ for failure in result.failures:
     print(failure)
 ```
 
+!!! tip "A DataFrame works here too"
+
+    The first argument may be the DataFrame pipeline itself rather than SQL text. A
+    campaign has to run the query repeatedly with data of its own, which for a DataFrame
+    means substituting into its plan — so each seed must be the DataFrame the pipeline
+    was built from, or a table it reads under that name. See
+    [Usage](usage.md#a-dataframe-is-a-query).
+
+
 `seeds` maps each table the query reads to a DataFrame. Its rows are the corpus that
 generated values are drawn from. The campaign swaps generated data in under those table
 names while it runs, and **restores the originals afterwards**.

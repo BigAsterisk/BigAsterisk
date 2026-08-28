@@ -18,6 +18,7 @@
 # thing twice.
 
 import random
+import zlib
 
 # --- reference data (real codes) -------------------------------------------
 
@@ -111,7 +112,7 @@ def flights(count, seed=0, malformed_rate=0.0005):
         day = "2026-%02d-%02d" % (1 + i % 12, 1 + (i // 12) % 28)
         sched_dep = random.choice([600, 725, 810, 905, 1030, 1145, 1320, 1450,
                                    1605, 1730, 1845, 2010, 2130])
-        distance = 200 + (hash(origin + dest) % 2400)
+        distance = _route_distance(origin, dest)
 
         cancelled = 1 if random.random() < 0.018 else 0
 
@@ -140,6 +141,17 @@ def flights(count, seed=0, malformed_rate=0.0005):
         rows.append((("F%07d" % i), day, carrier, origin, dest,
                      sched_dep, dep_delay, arr_delay, distance, cancelled))
     return rows
+
+
+def _route_distance(origin, dest):
+    """A stand-in great-circle distance for a route, in miles.
+
+    `zlib.crc32` rather than the built-in `hash`, which is salted per process: with
+    `hash` the same route came out a different length on every run, so `haul` — and
+    therefore every group the analysis produces — was not reproducible. That is a poor
+    property for data a debugging demo is supposed to be examined against.
+    """
+    return 200 + (zlib.crc32((origin + dest).encode()) % 2400)
 
 
 class _Random(random.Random):

@@ -153,6 +153,11 @@ result.faultInducingRows.foreach(println)         // the corrupt sales row(s)
 result.provenanceSize                             // candidates before ddmin
 ```
 
+The query may equally be the DataFrame pipeline itself. Delta debugging re-runs it with
+the base table cut down, which for a DataFrame means substituting into its plan — so the
+base table has to be one the pipeline actually reads (see
+[Usage](usage.md#a-dataframe-is-a-query)).
+
 ## PySpark
 
 ```python

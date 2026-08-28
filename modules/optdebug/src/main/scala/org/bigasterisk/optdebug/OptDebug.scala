@@ -5,7 +5,7 @@ import org.apache.spark.sql.functions.expr
 
 import scala.jdk.CollectionConverters._
 
-import org.bigasterisk.api.{BigAsterisk, DeltaDebug, SuspiciousOperation, Suspiciousness}
+import org.bigasterisk.api.{BigAsterisk, DeltaDebug, Query, SuspiciousOperation, Suspiciousness}
 
 /**
  * The result of localising a fault to the operations of a query.
@@ -105,8 +105,8 @@ object OptDebug {
    * Narrowing uses delta debugging over the base table: a subset "still fails" if
    * re-running `query` with `baseTable` restricted to it still produces a row the
    * oracle rejects. That costs one query re-execution per subset tested, which is why
-   * it is opt-in and needs the query text rather than a DataFrame — a DataFrame's plan
-   * is already bound to the original relation and would not see the restriction.
+   * it is opt-in. `query` may be SQL text or the DataFrame pipeline itself; see
+   * [[org.bigasterisk.api.Query]] for how a DataFrame is re-run with different data.
    *
    * With the failing population narrowed, [[Suspiciousness.Ochiai]] becomes viable and
    * often preferable; see `docs/optdebug.md`.
@@ -116,22 +116,22 @@ object OptDebug {
   def localize(
       spark: SparkSession,
       baseTable: String,
-      query: String,
+      query: Query,
       oracle: Row => Boolean,
       formula: Suspiciousness): OptDebugResult =
-    localizeCore(spark, spark.sql(query), oracle, formula,
+    localizeCore(spark, BigAsterisk.rerun(spark).frame(spark, query), oracle, formula,
       minimiser = Some(Minimiser(baseTable, query)))
 
   /** As above, with the default formula. */
   def localize(
       spark: SparkSession,
       baseTable: String,
-      query: String,
+      query: Query,
       oracle: Row => Boolean): OptDebugResult =
     localize(spark, baseTable, query, oracle, Suspiciousness.Tarantula)
 
   /** What is needed to re-run a query with its input restricted. */
-  private case class Minimiser(baseTable: String, query: String)
+  private case class Minimiser(baseTable: String, query: Query)
 
   private def localizeCore(
       spark: SparkSession,
@@ -279,11 +279,18 @@ object OptDebug {
   def localize(
       spark: SparkSession,
       baseTable: String,
-      query: String,
+      query: AnyRef,
       faultyWhere: String,
       formula: Suspiciousness): OptDebugResult = {
-    val augmented = s"SELECT *, ($faultyWhere) AS $VerdictColumn FROM ($query)"
-    val df = spark.sql(augmented)
+    // The verdict is carried as an extra column so that re-running under minimisation
+    // re-computes it too. Text can be wrapped textually; a DataFrame is wrapped by
+    // adding the column, which is the same operation one level down.
+    val augmented: Query = Query.of(query) match {
+      case Query.Sql(text) => Query.Sql(s"SELECT *, ($faultyWhere) AS $VerdictColumn FROM ($text)")
+      case Query.Frame(frame) =>
+        Query.Frame(frame.withColumn(VerdictColumn, expr(faultyWhere)))
+    }
+    val df = BigAsterisk.rerun(spark).frame(spark, augmented)
     val verdictIndex = df.schema.fieldIndex(VerdictColumn)
     val result = localizeCore(
       spark,
@@ -333,22 +340,21 @@ object OptDebug {
     val candidates = fullRowsFor(spark, base, traced)
     if (candidates.isEmpty) return traced
 
-    def restore(): Unit = base.createOrReplaceTempView(m.baseTable)
+    val rerun = BigAsterisk.rerun(spark)
+    val seeds = Map(m.baseTable -> base)
 
     def reproduces(subset: Seq[Row]): Boolean = subset.nonEmpty && {
-      spark.createDataFrame(subset.asJava, base.schema)
-        .createOrReplaceTempView(m.baseTable)
-      try spark.sql(m.query).collect().exists(oracle)
-      finally restore()
+      val restricted = spark.createDataFrame(subset.asJava, base.schema)
+      rerun.withData(spark, m.query, seeds, Map(m.baseTable -> restricted)) { df =>
+        df.collect().exists(oracle)
+      }
     }
 
-    try {
-      // If the candidate set does not reproduce the failure on its own, minimising it
-      // would be meaningless — keep what provenance gave us rather than inventing a
-      // smaller answer.
-      if (!reproduces(candidates)) traced
-      else Witnesses.of(DeltaDebug.ddmin(candidates)(reproduces).toArray)
-    } finally restore()
+    // If the candidate set does not reproduce the failure on its own, minimising it
+    // would be meaningless — keep what provenance gave us rather than inventing a
+    // smaller answer.
+    if (!reproduces(candidates)) traced
+    else Witnesses.of(DeltaDebug.ddmin(candidates)(reproduces).toArray)
   }
 
   /**

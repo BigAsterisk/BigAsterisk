@@ -251,10 +251,10 @@ trait FuzzSupport {
    *        rows are the corpus generated values are drawn from; only the schema is
    *        required for [[MutationStrategy.Random]].
    */
-  def fuzz(query: String, seeds: Map[String, DataFrame], config: FuzzConfig): FuzzResult
+  def fuzz(query: Query, seeds: Map[String, DataFrame], config: FuzzConfig): FuzzResult
 
   /** Runs a campaign with the default configuration. */
-  final def fuzz(query: String, seeds: Map[String, DataFrame]): FuzzResult =
+  final def fuzz(query: Query, seeds: Map[String, DataFrame]): FuzzResult =
     fuzz(query, seeds, FuzzConfig())
 
   /**
@@ -262,7 +262,7 @@ trait FuzzSupport {
    * and Py4J, which marshals a Python dict to `java.util.Map`.
    */
   final def fuzzJava(
-      query: String,
+      query: AnyRef,
       seeds: java.util.Map[String, DataFrame],
       iterations: Int,
       strategy: String,
@@ -274,7 +274,7 @@ trait FuzzSupport {
       keepSamples: Int): FuzzResult = {
     import scala.jdk.CollectionConverters._
     fuzz(
-      query,
+      Query.of(query),
       seeds.asScala.toMap,
       FuzzConfig(iterations, MutationStrategy.byName(strategy), rowsPerTable, seed, guided,
         abstractFramework, rowsPerVector, keepSamples))

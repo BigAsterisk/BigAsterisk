@@ -47,6 +47,8 @@ Three mutation strategies, which are the three fuzzers this platform unifies:
 
 import json
 
+from .query import as_query
+
 
 class FuzzFailure:
     """An input that made the query fail."""
@@ -122,6 +124,11 @@ class Fuzz:
              rows_per_vector=3, keep_samples=3):
         """Run a fuzzing campaign against ``query``.
 
+        ``query`` is a DataFrame — the pipeline itself — or a SQL string. Either way
+        the campaign has to run it repeatedly with data of its own choosing; for a
+        DataFrame that is done by substituting into its plan, so each seed must be the
+        DataFrame the pipeline was built from (or a table it reads under that name).
+
         ``seeds`` maps each table name the query reads to a DataFrame. Their rows are
         the corpus generated values are drawn from; only the schema matters for the
         ``random`` strategy.
@@ -148,7 +155,7 @@ class Fuzz:
         for name, df in seeds.items():
             jseeds.put(name, df._jdf)
         result = self._support.fuzzJava(
-            query, jseeds, int(iterations), strategy, int(rows_per_table),
+            as_query(query), jseeds, int(iterations), strategy, int(rows_per_table),
             int(seed), bool(guided), bool(abstract_framework), int(rows_per_vector),
             int(keep_samples))
         return FuzzResult(json.loads(result.json()))

@@ -4,12 +4,12 @@
 
     Everything below — every number, every ranking — came out of running
     [`notebooks/airline_analysis.ipynb`](https://github.com/BigAsterisk/BigAsterisk/blob/main/notebooks/airline_analysis.ipynb)
-    against a three-worker Spark cluster. Nothing is an example of what you might see.
+    against a real Spark cluster — a standalone master with workers in their own containers. Nothing is an example of what you might see.
     Setup is at the bottom; it takes one command.
 
 # Debugging a real pipeline: airline on-time performance
 
-A quarter of a million flights, three joins, two Python UDFs, one grouped aggregate — and
+A quarter of a million flights, two joins, two Python UDFs, one grouped aggregate — and
 one fault planted where it makes the answer look *almost* right.
 
 Thirteen tools then take turns on it. Each answers a **different question**, and the point
@@ -39,7 +39,7 @@ import os, socket, sys, tempfile, time
 sys.path.insert(0, f"{ROOT}/python")
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col
+from pyspark.sql.functions import avg, col, count, lit, substring, udf
 from pyspark.sql.types import IntegerType, StringType
 
 import bigasterisk
@@ -67,16 +67,25 @@ if MASTER.startswith("spark://"):
         .config("spark.driver.bindAddress", "0.0.0.0")
         .config("spark.executor.memory", os.environ.get("EXECUTOR_MEMORY", "2g"))
         .config("spark.cores.max", os.environ.get("CORES_MAX", "6")))
-else:
-    builder = builder.config("spark.ui.enabled", "false")
 
 spark = builder.getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
 print("Spark", spark.version, "-", spark.sparkContext.master)
+
+# `configure` also attached a BigAsterisk tab to this driver's Spark UI: watchpoints,
+# breakpoints, crashes, latency and what was read inside the UDFs, live, while the job
+# runs. It costs nothing until someone opens it.
+print("Spark UI:", spark.sparkContext.uiWebUrl, "-> the BigAsterisk tab")
+if MASTER.startswith("spark://"):
+    # the driver runs in this container, so that hostname is a container name;
+    # the Compose stack publishes the same port on the host
+    print("          from your browser: http://localhost:4040")
 ```
 
 ```text
 Spark 4.1.2 - spark://master:7077
+Spark UI: http://notebook:4040 -> the BigAsterisk tab
+          from your browser: http://localhost:4040
 ```
 
 ```python
@@ -109,20 +118,15 @@ flights.show(5)
 ```
 
 ```text
-
-
-
-
-                                                                                
-250000 flights, 30 airports, 10 carriers  (5.4s)
+250000 flights, 30 airports, 10 carriers  (4.0s)
 +---------+----------+-------+------+----+---------+---------+---------+--------+---------+
 |flight_id|       day|carrier|origin|dest|sched_dep|dep_delay|arr_delay|distance|cancelled|
 +---------+----------+-------+------+----+---------+---------+---------+--------+---------+
-| F0124928|2026-09-23|     AS|   ATL| LAS|     1730|      -12|       -8|     234|        0|
-| F0124929|2026-10-23|     UA|   CLT| DEN|     1845|       -6|      -11|    1292|        0|
-| F0124930|2026-11-23|     AS|   CLT| ATL|      810|      -25|      -38|     767|        0|
-| F0124931|2026-12-23|     AA|   MIA| SAN|     1030|        7|        7|    1123|        0|
-| F0124932|2026-01-24|     B6|   ORD| ATL|     1605|       10|       -5|    2208|        0|
+| F0124928|2026-09-23|     AS|   ATL| LAS|     1730|      -12|       -8|    1490|        0|
+| F0124929|2026-10-23|     UA|   CLT| DEN|     1845|       -6|      -11|     447|        0|
+| F0124930|2026-11-23|     AS|   CLT| ATL|      810|      -25|      -38|    1640|        0|
+| F0124931|2026-12-23|     AA|   MIA| SAN|     1030|        7|        7|     915|        0|
+| F0124932|2026-01-24|     B6|   ORD| ATL|     1605|       10|       -5|    2191|        0|
 +---------+----------+-------+------+----+---------+---------+---------+--------+---------+
 only showing top 5 rows
 ```
@@ -176,13 +180,19 @@ def flight(row):
 
 ## The pipeline, and the fault
 
-Two Python UDFs and three joins. `haul` classifies a route by distance. `adjusted_delay`
-was meant to clamp implausible arrival delays and instead **flips their sign**.
+An ordinary PySpark job: two `@udf`-decorated Python functions, two joins and a grouped
+aggregate, written with the DataFrame API. `haul` classifies a route by distance.
+`adjusted_delay` was meant to clamp implausible arrival delays and instead **flips their
+sign**.
 
 It only fires above 300 minutes, so the vast majority of flights are untouched and the
 aggregate looks nearly right. That is what makes it worth debugging rather than noticing.
 
+Nothing below is arranged for the tools' benefit. They are handed this pipeline and have
+to work with it as it is.
+
 ```python
+@udf(returnType=StringType())
 def haul(distance):
     """Route length class."""
     if distance < 500:
@@ -192,6 +202,7 @@ def haul(distance):
     return "long"
 
 
+@udf(returnType=IntegerType())
 def adjusted_delay(arr_delay):
     """Arrival delay, with extreme values 'corrected'."""
     if arr_delay is None:
@@ -201,27 +212,47 @@ def adjusted_delay(arr_delay):
     return arr_delay
 
 
-spark.udf.register("haul", haul, StringType())
-spark.udf.register("adjusted_delay", adjusted_delay, IntegerType())
+def analysis(flights, carriers, airports):
+    """Average delay per carrier and route length.
 
-QUERY = """
-    SELECT c.name AS carrier,
-           haul(f.distance) AS haul,
-           COUNT(*) AS flights,
-           AVG(adjusted_delay(f.arr_delay)) AS avg_delay
-    FROM flights f
-    JOIN carriers c ON f.carrier = c.code
-    JOIN airports o ON f.origin = o.code
-    WHERE f.cancelled = 0
-    GROUP BY c.name, haul(f.distance)
-"""
-ORACLE = "avg_delay < -20"
+    Taking the three inputs as arguments is not a concession to the tools; it is how a
+    pipeline stays testable. It also happens to be what several of them want: a
+    watchpoint or a profiler hands back a wrapped DataFrame, and running the analysis
+    over it is then a function call rather than a rewrite.
+    """
+    # `code` and `name` are in both reference tables, so each is narrowed to what this
+    # analysis needs before the join rather than disambiguated at every use.
+    named = carriers.select(col("code").alias("carrier_code"),
+                            col("name").alias("carrier"))
+    origins = airports.select(col("code").alias("origin_code"))
+
+    flown = flights.filter(col("cancelled") == 0)
+    return (flown
+            .join(named, flown["carrier"] == named["carrier_code"])
+            .join(origins, flown["origin"] == origins["origin_code"])
+            .withColumn("haul", haul(flown["distance"]))
+            .groupBy(named["carrier"], col("haul"))
+            .agg(count("*").alias("flights"),
+                 avg(adjusted_delay(flown["arr_delay"])).alias("avg_delay")))
+
+
+def pipeline():
+    """The analysis over the registered tables.
+
+    `spark.table(...)` rather than the DataFrames above: the tools that re-run this
+    pipeline with data of their own find `flights` in its plan by that name.
+    """
+    return analysis(spark.table("flights"), spark.table("carriers"),
+                    spark.table("airports"))
+
+
+ORACLE = "avg_delay < -20"     # no airline lands twenty minutes early on average
 ```
 
 ```python
 with Step("The pipeline", "what does the analysis say?",
-          "three joins, two Python UDFs, one grouped aggregate") as step:
-    rows = spark.sql(QUERY).orderBy("avg_delay").collect()
+          "two joins, two Python UDFs, one grouped aggregate") as step:
+    rows = pipeline().orderBy("avg_delay").collect()
     step.say("%d (carrier, haul) groups" % len(rows))
     step.say("")
     step.say("%-24s %-8s %8s %10s" % ("carrier", "haul", "flights", "avg_delay"))
@@ -231,7 +262,7 @@ with Step("The pipeline", "what does the analysis say?",
     step.finding("the worst groups average large NEGATIVE delays — "
                  "no airline lands an hour early")
 
-wrong = spark.sql(QUERY).filter(ORACLE).collect()
+wrong = pipeline().filter(ORACLE).collect()
 print("\n%d of %d groups are implausible (%s)" % (len(wrong), len(rows), ORACLE))
 ```
 
@@ -239,28 +270,24 @@ print("\n%d of %d groups are implausible (%s)" % (len(wrong), len(rows), ORACLE)
 ==============================================================================
   1. The pipeline
      question: what does the analysis say?
-     method:   three joins, two Python UDFs, one grouped aggregate
+     method:   two joins, two Python UDFs, one grouped aggregate
 ==============================================================================
-
-
-
-                                                                                
      30 (carrier, haul) groups
-     
-     carrier                  haul      flights  avg_delay
-     Allegiant Air            short        2926      -92.9
-     United Air Lines         long        11002      -46.9
-     Delta Air Lines          medium      10677      -45.4
-     Hawaiian Airlines        long        11116      -38.5
-     Frontier Airlines        medium      10385      -37.0
-  >> the worst groups average large NEGATIVE delays — no airline lands an hour early
-     (1.9s)
 
-12 of 30 groups are implausible (avg_delay < -20)
+     carrier                  haul      flights  avg_delay
+     United Air Lines         medium      10967      -56.1
+     Delta Air Lines          long        10891      -53.7
+     Hawaiian Airlines        long        10974      -47.9
+     Alaska Airlines          short        2671      -37.6
+     Delta Air Lines          short        2649      -37.4
+  >> the worst groups average large NEGATIVE delays — no airline lands an hour early
+     (2.3s)
+
+13 of 30 groups are implausible (avg_delay < -20)
 ```
 
-Something is wrong — but *what*? Seven operators and two functions over a quarter-million
-rows. Each tool below narrows the question.
+Something is wrong — but *what*? Ten operators and two Python functions over a
+quarter-million rows. Each tool below narrows the question.
 
 ## 1. DeSQL — what is this query made of?
 
@@ -270,7 +297,7 @@ where the other tools get their notion of *an operation*.
 ```python
 with Step("DeSQL", "what are the parts of this query?",
           "decompose the plan; each step can be materialised on its own") as step:
-    steps = bigasterisk.desql(spark).decompose(spark.sql(QUERY))
+    steps = bigasterisk.desql(spark).decompose(pipeline())
     for s in steps:
         step.say("[%d] %-12s %s" % (s.id, s.operator, (s.detail or "")[:58]))
     step.finding("%d steps, %d carrying conditional branches"
@@ -283,15 +310,94 @@ with Step("DeSQL", "what are the parts of this query?",
      question: what are the parts of this query?
      method:   decompose the plan; each step can be materialised on its own
 ==============================================================================
-     [0] Relation     flights AS f
-     [1] Relation     carriers AS c
-     [2] Join         INNER ON (f.carrier = c.code)
-     [3] Relation     airports AS o
-     [4] Join         INNER ON (f.origin = o.code)
-     [5] Filter       (f.cancelled = 0)
-     [6] Aggregate    c.name AS carrier, haul(distance) AS haul, count(1) AS fli
-  >> 7 steps, 1 carrying conditional branches
+     [0] Relation     flights
+     [1] Filter       (flights.cancelled = 0)
+     [2] Relation     carriers
+     [3] Project      carriers.code AS carrier_code, carriers.name AS carrier
+     [4] Join         INNER ON (flights.carrier = carrier_code)
+     [5] Relation     airports
+     [6] Project      airports.code AS origin_code
+     [7] Join         INNER ON (flights.origin = origin_code)
+     [8] Project      flights.flight_id, flights.day, flights.carrier, flights.o
+     [9] Aggregate    carrier, haul, count(1) AS flights, avg(adjusted_delay(arr
+  >> 10 steps, 1 carrying conditional branches
      (0.1s)
+```
+
+### Opening one step
+
+The list above is the *shape* of the query. Each step also carries the sub-query it
+computes and the rows flowing through it — which is the point of decomposing at all.
+
+Materialising a step runs the query **up to that point and no further**, so working
+backwards from a wrong answer only costs the part still under suspicion.
+
+```python
+# the last step before the aggregate: everything joined and filtered, nothing summarised
+chosen = [s for s in steps if s.operator == "Filter"][-1]
+
+print("[%d] %s  %s\n" % (chosen.id, chosen.operator, chosen.detail))
+
+print("the sub-query at this point:")
+print(chosen.plan)
+
+print("\nschema: %s" % ", ".join(f.name for f in chosen.schema.fields))
+print("%d rows flow through here" % chosen.data.count())
+```
+
+```text
+[1] Filter  (flights.cancelled = 0)
+
+the sub-query at this point:
+Filter (cancelled#26 = 0)
++- SubqueryAlias flights
+   +- View (`flights`, [flight_id#17, day#18, carrier#19, origin#20, dest#21, sched_dep#22, dep_delay#23, arr_delay#24, distance#25, cancelled#26])
+      +- Relation [flight_id#17,day#18,carrier#19,origin#20,dest#21,sched_dep#22,dep_delay#23,arr_delay#24,distance#25,cancelled#26] parquet
+
+
+schema: flight_id, day, carrier, origin, dest, sched_dep, dep_delay, arr_delay, distance, cancelled
+245530 rows flow through here
+```
+
+```python
+# every step is an ordinary DataFrame, so inspect it however you like
+chosen.data.select("flight_id", "carrier", "origin", "dest", "arr_delay").show(5)
+
+# the flights this step passes that are already suspicious
+chosen.data.filter("arr_delay > 10000").show(3)
+```
+
+```text
++---------+-------+------+----+---------+
+|flight_id|carrier|origin|dest|arr_delay|
++---------+-------+------+----+---------+
+| F0124928|     AS|   ATL| LAS|       -8|
+| F0124929|     UA|   CLT| DEN|      -11|
+| F0124930|     AS|   CLT| ATL|      -38|
+| F0124931|     AA|   MIA| SAN|        7|
+| F0124932|     B6|   ORD| ATL|       -5|
++---------+-------+------+----+---------+
+only showing top 5 rows
++---------+----------+-------+------+----+---------+---------+---------+--------+---------+
+|flight_id|       day|carrier|origin|dest|sched_dep|dep_delay|arr_delay|distance|cancelled|
++---------+----------+-------+------+----+---------+---------+---------+--------+---------+
+| F0126156|2026-01-14|     G4|   LAX| SMF|     1320|      -12|   100000|    1740|        0|
+| F0128797|2026-02-10|     UA|   ATL| DFW|      600|      -10|   100000|    1396|        0|
+| F0129876|2026-01-16|     NK|   DFW| LAX|      600|      100|   100000|    2197|        0|
++---------+----------+-------+------+----+---------+---------+---------+--------+---------+
+only showing top 3 rows
+```
+
+```python
+# a branch carries the records that took it — which is what makes a condition
+# observable at record level, and what operation-level fault localisation scores
+for branch in chosen.branches:
+    print("%-42s %d record(s)" % (branch.description[:42], branch.data.count()))
+```
+
+```text
+(flights.cancelled = 0)                    245530 record(s)
+(NOT (flights.cancelled = 0))              4470 record(s)
 ```
 
 ## 2. Titian — which records produced the wrong number?
@@ -311,7 +417,7 @@ with Step("Titian", "which input records produced %s?" % target,
     step.say("enabling capture and re-running the query...")
     lineage.enable_capture()
     try:
-        traced = spark.sql(QUERY)
+        traced = pipeline()
         outputs = lineage.collect_with_lineage(traced)
         step.say("captured lineage for %d output groups" % len(outputs))
         picked = [(r, i) for r, i in outputs
@@ -332,15 +438,15 @@ with Step("Titian", "which input records produced %s?" % target,
 ```text
 ==============================================================================
   3. Titian
-     question: which input records produced carrier = 'Allegiant Air' AND haul = 'short'?
+     question: which input records produced carrier = 'United Air Lines' AND haul = 'medium'?
      method:   record-level provenance captured during execution, traced to the scan
 ==============================================================================
      enabling capture and re-running the query...
      captured lineage for 30 output groups
      walked back 3 step(s) to the source scan
-  >> 2926 source flights produced that one group
+  >> 10967 source flights produced that one group
      exact — and still far too many to read
-     (2.0s)
+     (3.1s)
 ```
 
 ## 3. FlowDebug — which of those records *mattered*?
@@ -355,11 +461,12 @@ result at all.
 with Step("FlowDebug", "of those flights, which one is responsible?",
           "influence from the aggregate's semantics, plus taint through the UDF") as step:
     influence_ranked = bigasterisk.influence(spark).influencers(
-        spark.sql(QUERY), target, top_k=5)
+        pipeline(), target, top_k=5)
     for inf in influence_ranked[:4]:
         step.say("%.4f  %s" % (inf.score, flight(inf.row)))
-    step.finding("one flight carries %.1f%% of the responsibility"
-                 % (influence_ranked[0].score * 100))
+    step.finding("the top-ranked flight carries %.1f%% of the responsibility, "
+                 "out of %d witnesses"
+                 % (influence_ranked[0].score * 100, len(witnesses)))
     step.say("columns that could reach the result: %s"
              % ", ".join(sorted(influence_ranked[0].columns)))
 ```
@@ -370,16 +477,18 @@ with Step("FlowDebug", "of those flights, which one is responsible?",
      question: of those flights, which one is responsible?
      method:   influence from the aggregate's semantics, plus taint through the UDF
 ==============================================================================
-     0.2686  F0126156 G4 LAX->SMF arr_delay=100000
-     0.2686  F0139810 G4 EWR->ORD arr_delay=100000
-     0.2686  F0247188 G4 SEA->MCO arr_delay=100000
-     0.0017  F0229706 G4 SEA->PHL arr_delay=630
-  >> one flight carries 26.9% of the responsibility
+     0.1030  F0128797 United Air Lines ATL->DFW arr_delay=100000
+     0.1030  F0113757 United Air Lines ORD->RDU arr_delay=100000
+     0.1030  F0119458 United Air Lines PHX->LAS arr_delay=100000
+     0.1030  F0002213 United Air Lines ATL->DEN arr_delay=100000
+  >> the top-ranked flight carries 10.3% of the responsibility, out of 10967 witnesses
      columns that could reach the result: arr_delay
-     (2.0s)
+     (2.1s)
 ```
 
-That is the malformed feed record — a delay of `100000` minutes.
+Those are the malformed feed records — a delay of `100000` minutes. Provenance
+returned thousands of flights for that group; influence puts a handful of them at
+the top and leaves the rest near zero.
 
 ## 4. Reading inside the UDFs
 
@@ -453,9 +562,10 @@ scoped_path = os.path.join(root, "flights_scoped")
 clean = spark.table("flights").filter(
     # every twentieth flight, chosen by its id rather than by sampling: `sample()` depends
     # on how the file splits happen to be assigned, so it is not reproducible across runs
-    "(arr_delay IS NULL OR arr_delay < 10000) AND CAST(substring(flight_id, 2) AS INT) % 20 = 0")
+    (col("arr_delay").isNull() | (col("arr_delay") < 10000))
+    & (substring(col("flight_id"), 2, 12).cast("int") % 20 == 0))
 scoped = clean.unionByName(
-    spark.table("flights").filter("flight_id = '%s'" % culprit_id))
+    spark.table("flights").filter(col("flight_id") == culprit_id))
 scoped.write.mode("overwrite").parquet(scoped_path)
 spark.read.parquet(scoped_path).createOrReplaceTempView("flights")
 scoped_count = spark.table("flights").count()
@@ -475,7 +585,7 @@ with Step("OptDebug", "which operation produces the wrong number?",
     # legitimately late flights as well as by the malformed one, and a spectrum cannot
     # separate them.
     optdebug_result = bigasterisk.optdebug(spark).localize(
-        QUERY, ORACLE, base_table="flights")
+        pipeline(), ORACLE, base_table="flights")
     if optdebug_result.minimised:
         step.say("narrowed the failing input from %d records before scoring"
                  % optdebug_result.minimised_from)
@@ -496,19 +606,19 @@ with Step("OptDebug", "which operation produces the wrong number?",
      question: which operation produces the wrong number?
      method:   score every operation and branch by the records that reach it
 ==============================================================================
-     a clean 12499-flight sample, plus the one flight influence named (F0126156)
-     narrowed the failing input from 124 records before scoring
-     0.989  [6] Aggregate (f.arr_delay > 300)
-     0.902  [6] Aggregate (f.distance < 500)
-     0.656  [6] Aggregate (f.distance < 1500)
-     0.505  [5] Filter (f.cancelled = 0)
-     0.505  [2] Join INNER ON (f.carrier = c.code)
-     0.505  [4] Join INNER ON (f.origin = o.code)
-     0.505  [5] Filter (f.cancelled = 0)
-     0.505  [6] Aggregate c.name AS carrier, haul(distance) AS haul, count(1) AS flights, av
-  >> highest-ranked branch from inside a UDF is #1: (f.arr_delay > 300) (0.989)
+     a clean 12499-flight sample, plus the one flight influence named (F0128797)
+     narrowed the failing input from 571 records before scoring
+     0.989  [9] Aggregate (flights.arr_delay > 300)
+     0.654  [8] Project (flights.distance < 1500)
+     0.505  [1] Filter (flights.cancelled = 0)
+     0.505  [1] Filter (flights.cancelled = 0)
+     0.505  [4] Join INNER ON (flights.carrier = carrier_code)
+     0.505  [7] Join INNER ON (flights.origin = origin_code)
+     0.505  [8] Project flights.flight_id, flights.day, flights.carrier, flights.origin, f
+     0.505  [9] Aggregate carrier, haul, count(1) AS flights, avg(adjusted_delay(arr_delay))
+  >> highest-ranked branch from inside a UDF is #1: (flights.arr_delay > 300) (0.989)
      those branches are invisible to plan analysis; they are here only because the functions were read
-     (7.9s)
+     (9.2s)
 ```
 
 `arr_delay > 300` tops the ranking: the sign flip itself, named as an *operation* rather
@@ -528,7 +638,7 @@ with Step("BigSift", "what is the smallest input that still fails?",
           "delta debugging over the provenance, re-running to check each subset") as step:
     step.say("starting from %d flights..." % scoped_count)
     bigsift_result = bigasterisk.BigSift(spark).debug(
-        "flights", QUERY,
+        "flights", pipeline(),
         lambda row: row["avg_delay"] is not None and row["avg_delay"] < -20)
     step.say("provenance left %d candidate records" % bigsift_result.provenance_size)
     for row in bigsift_result.fault_inducing_rows[:3]:
@@ -546,10 +656,10 @@ spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("fligh
      method:   delta debugging over the provenance, re-running to check each subset
 ==============================================================================
      starting from 12499 flights...
-     provenance left 124 candidate records
-         carrier=G4, origin=LAX, arr_delay=100000, distance=231, cancelled=0
+     provenance left 571 candidate records
+         carrier=UA, origin=ATL, arr_delay=100000, distance=1396, cancelled=0
   >> 1 record(s) reproduce the failure on their own
-     (4.3s)
+     (6.2s)
 ```
 
 ## 7. BigDebug — watch the feed, and survive the crash
@@ -576,25 +686,28 @@ NOISY = ["SQLQueryContextLogger", "org.apache.spark.scheduler.TaskSetManager"]
 with Step("BigDebug", "can I watch the feed and survive a crash?",
           "a watchpoint on the records flowing past, and a guard that names the "
           "record that kills a task") as step:
+    # The whole change to the application: read `flights` through the watchpoint
+    # instead of directly. Because the pipeline takes its inputs as arguments, that is
+    # one substitution at the call — nothing inside the analysis moves.
     watched = bigasterisk.watchpoints(spark).watch(
         spark.table("flights"), col("arr_delay") > 10000)
-    watched.df.createOrReplaceTempView("flights")
-    spark.sql(QUERY).collect()
+    analysis(watched.df, spark.table("carriers"), spark.table("airports")).collect()
     step.say("watchpoint matched %d record(s)" % watched.hits)
     for row in watched.captured[:3]:
         step.say("    %s" % flight(row))
-    spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("flights")
 
     step.say("")
     step.say("now a query that divides by the distance from that outlier...")
     guard = bigasterisk.crash_culprit(spark).guard(
-        spark.table("flights").filter("arr_delay IS NOT NULL").coalesce(1))
+        spark.table("flights").filter(col("arr_delay").isNotNull()).coalesce(1))
     previous = spark.conf.get("spark.sql.ansi.enabled")
     spark.conf.set("spark.sql.ansi.enabled", "true")
     quieten(NOISY)
     spark.sparkContext.setLogLevel("OFF")
     try:
-        guard.df.selectExpr("flight_id", "100 DIV (arr_delay - 100000) AS boom").collect()
+        guard.df.select(
+            col("flight_id"),
+            (lit(100) / (col("arr_delay") - 100000)).alias("boom")).collect()
         step.say("expected a failure and did not get one")
     except Exception:
         culprit = guard.culprit
@@ -616,12 +729,12 @@ with Step("BigDebug", "can I watch the feed and survive a crash?",
          F0188979 B6 MIA->ATL arr_delay=100000
          F0189166 HA DFW->LAS arr_delay=100000
          F0194577 G4 PHX->MSP arr_delay=100000
-     
+
      now a query that divides by the distance from that outlier...
-{"ts": "2026-08-27 19:25:26.442", "level": "ERROR", "logger": "SQLQueryContextLogger", "msg": "[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to tolerate divisor being 0 and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error. SQLSTATE: 22012", "context": {"errorClass": "DIVIDE_BY_ZERO"}, "exception": {"class": "Py4JJavaError", "msg": "An error occurred while calling o512.collectToPython.\n: org.apache.spark.SparkArithmeticException: [DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to tolerate divisor being 0 and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error. SQLSTATE: 22012\n== SQL (line 1, position 1) ==\n100 DIV (arr_delay - 100000) AS boom\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n\n\tat org.apache.spark.sql.errors.QueryExecutionErrors$.divideByZeroError(QueryExecutionErrors.scala:205)\n\tat org.apache.spark.sql.errors.QueryExecutionErrors.divideByZeroError(QueryExecutionErrors.scala)\n\tat org.apache.spark.sql.catalyst.expressions.GeneratedClass$SpecificUnsafeProjection.apply(Unknown Source)\n\tat org.apache.spark.sql.catalyst.expressions.GeneratedClass$SpecificUnsafeProjection.apply(Unknown Source)\n\tat scala.collection.Iterator$$anon$9.next(Iterator.scala:594)\n\tat org.apache.spark.sql.execution.SparkPlan.$anonfun$getByteArrayRdd$1(SparkPlan.scala:403)\n\tat org.apache.spark.rdd.RDD.$anonfun$mapPartitionsInternal$2(RDD.scala:901)\n\tat org.apache.spark.rdd.RDD.$anonfun$mapPartitionsInternal$2$adapted(RDD.scala:901)\n\tat org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)\n\tat org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:374)\n\tat org.apache.spark.rdd.RDD.iterator(RDD.scala:338)\n\tat org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:93)\n\tat org.apache.spark.TaskContext.runTaskWithListeners(TaskContext.scala:180)\n\tat org.apache.spark.scheduler.Task.run(Task.scala:147)\n\tat org.apache.spark.executor.Executor$TaskRunner.$anonfun$run$4(Executor.scala:873)\n\tat org.apache.spark.util.SparkErrorUtils.tryWithSafeFinally(SparkErrorUtils.scala:86)\n\tat org.apache.spark.util.SparkErrorUtils.tryWithSafeFinally$(SparkErrorUtils.scala:83)\n\tat org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:97)\n\tat org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:876)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\n\tat java.base/java.lang.Thread.run(Thread.java:840)\n\tat org.apache.spark.scheduler.DAGScheduler.runJob(DAGScheduler.scala:1017)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2496)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2517)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2536)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2561)\n\tat org.apache.spark.rdd.RDD.$anonfun$collect$1(RDD.scala:1057)\n\tat org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)\n\tat org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:112)\n\tat org.apache.spark.rdd.RDD.withScope(RDD.scala:417)\n\tat org.apache.spark.rdd.RDD.collect(RDD.scala:1056)\n\tat org.apache.spark.sql.execution.SparkPlan.executeCollect(SparkPlan.scala:462)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$collectToPython$1(Dataset.scala:2085)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$withAction$2(Dataset.scala:2265)\n\tat org.apache.spark.sql.execution.QueryExecution$.withInternalError(QueryExecution.scala:717)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$withAction$1(Dataset.scala:2263)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$8(SQLExecution.scala:177)\n\tat org.apache.spark.sql.execution.SQLExecution$.withSessionTagsApplied(SQLExecution.scala:285)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$7(SQLExecution.scala:139)\n\tat org.apache.spark.JobArtifactSet$.withActiveJobArtifactState(JobArtifactSet.scala:94)\n\tat org.apache.spark.sql.artifact.ArtifactManager.$anonfun$withResources$1(ArtifactManager.scala:112)\n\tat org.apache.spark.sql.artifact.ArtifactManager.withClassLoaderIfNeeded(ArtifactManager.scala:106)\n\tat org.apache.spark.sql.artifact.ArtifactManager.withResources(ArtifactManager.scala:111)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$6(SQLExecution.scala:139)\n\tat org.apache.spark.sql.execution.SQLExecution$.withSQLConfPropagated(SQLExecution.scala:308)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$1(SQLExecution.scala:138)\n\tat org.apache.spark.sql.SparkSession.withActive(SparkSession.scala:804)\n\tat org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId0(SQLExecution.scala:92)\n\tat org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId(SQLExecution.scala:250)\n\tat org.apache.spark.sql.classic.Dataset.withAction(Dataset.scala:2263)\n\tat org.apache.spark.sql.classic.Dataset.collectToPython(Dataset.scala:2081)\n\tat jdk.internal.reflect.GeneratedMethodAccessor78.invoke(Unknown Source)\n\tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:569)\n\tat py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:244)\n\tat py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374)\n\tat py4j.Gateway.invoke(Gateway.java:282)\n\tat py4j.commands.AbstractCommand.invokeMethod(AbstractCommand.java:132)\n\tat py4j.commands.CallCommand.execute(CallCommand.java:79)\n\tat py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:184)\n\tat py4j.ClientServerConnection.run(ClientServerConnection.java:108)\n\tat java.base/java.lang.Thread.run(Thread.java:840)\n", "stacktrace": [{"class": null, "method": "deco", "file": "/opt/spark/python/pyspark/errors/exceptions/captured.py", "line": "263"}, {"class": null, "method": "get_return_value", "file": "/opt/spark/python/lib/py4j-0.10.9.9-src.zip/py4j/protocol.py", "line": "327"}]}}
+{"ts": "2026-08-28 16:18:28.008", "level": "ERROR", "logger": "DataFrameQueryContextLogger", "msg": "[DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to tolerate divisor being 0 and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error. SQLSTATE: 22012", "context": {"file": "line 39 in cell [16]", "line": "", "fragment": "__truediv__", "errorClass": "DIVIDE_BY_ZERO"}, "exception": {"class": "Py4JJavaError", "msg": "An error occurred while calling o1166.collectToPython.\n: org.apache.spark.SparkArithmeticException: [DIVIDE_BY_ZERO] Division by zero. Use `try_divide` to tolerate divisor being 0 and return NULL instead. If necessary set \"spark.sql.ansi.enabled\" to \"false\" to bypass this error. SQLSTATE: 22012\n== DataFrame ==\n\"__truediv__\" was called from\nline 39 in cell [16]\n\n\tat org.apache.spark.sql.errors.QueryExecutionErrors$.divideByZeroError(QueryExecutionErrors.scala:205)\n\tat org.apache.spark.sql.errors.QueryExecutionErrors.divideByZeroError(QueryExecutionErrors.scala)\n\tat org.apache.spark.sql.catalyst.expressions.GeneratedClass$SpecificUnsafeProjection.apply(Unknown Source)\n\tat org.apache.spark.sql.catalyst.expressions.GeneratedClass$SpecificUnsafeProjection.apply(Unknown Source)\n\tat scala.collection.Iterator$$anon$9.next(Iterator.scala:594)\n\tat org.apache.spark.sql.execution.SparkPlan.$anonfun$getByteArrayRdd$1(SparkPlan.scala:403)\n\tat org.apache.spark.rdd.RDD.$anonfun$mapPartitionsInternal$2(RDD.scala:901)\n\tat org.apache.spark.rdd.RDD.$anonfun$mapPartitionsInternal$2$adapted(RDD.scala:901)\n\tat org.apache.spark.rdd.MapPartitionsRDD.compute(MapPartitionsRDD.scala:52)\n\tat org.apache.spark.rdd.RDD.computeOrReadCheckpoint(RDD.scala:374)\n\tat org.apache.spark.rdd.RDD.iterator(RDD.scala:338)\n\tat org.apache.spark.scheduler.ResultTask.runTask(ResultTask.scala:93)\n\tat org.apache.spark.TaskContext.runTaskWithListeners(TaskContext.scala:180)\n\tat org.apache.spark.scheduler.Task.run(Task.scala:147)\n\tat org.apache.spark.executor.Executor$TaskRunner.$anonfun$run$4(Executor.scala:873)\n\tat org.apache.spark.util.SparkErrorUtils.tryWithSafeFinally(SparkErrorUtils.scala:86)\n\tat org.apache.spark.util.SparkErrorUtils.tryWithSafeFinally$(SparkErrorUtils.scala:83)\n\tat org.apache.spark.util.Utils$.tryWithSafeFinally(Utils.scala:97)\n\tat org.apache.spark.executor.Executor$TaskRunner.run(Executor.scala:876)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136)\n\tat java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635)\n\tat java.base/java.lang.Thread.run(Thread.java:840)\n\tat org.apache.spark.scheduler.DAGScheduler.runJob(DAGScheduler.scala:1017)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2496)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2517)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2536)\n\tat org.apache.spark.SparkContext.runJob(SparkContext.scala:2561)\n\tat org.apache.spark.rdd.RDD.$anonfun$collect$1(RDD.scala:1057)\n\tat org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:151)\n\tat org.apache.spark.rdd.RDDOperationScope$.withScope(RDDOperationScope.scala:112)\n\tat org.apache.spark.rdd.RDD.withScope(RDD.scala:417)\n\tat org.apache.spark.rdd.RDD.collect(RDD.scala:1056)\n\tat org.apache.spark.sql.execution.SparkPlan.executeCollect(SparkPlan.scala:462)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$collectToPython$1(Dataset.scala:2085)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$withAction$2(Dataset.scala:2265)\n\tat org.apache.spark.sql.execution.QueryExecution$.withInternalError(QueryExecution.scala:717)\n\tat org.apache.spark.sql.classic.Dataset.$anonfun$withAction$1(Dataset.scala:2263)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$8(SQLExecution.scala:177)\n\tat org.apache.spark.sql.execution.SQLExecution$.withSessionTagsApplied(SQLExecution.scala:285)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$7(SQLExecution.scala:139)\n\tat org.apache.spark.JobArtifactSet$.withActiveJobArtifactState(JobArtifactSet.scala:94)\n\tat org.apache.spark.sql.artifact.ArtifactManager.$anonfun$withResources$1(ArtifactManager.scala:112)\n\tat org.apache.spark.sql.artifact.ArtifactManager.withClassLoaderIfNeeded(ArtifactManager.scala:106)\n\tat org.apache.spark.sql.artifact.ArtifactManager.withResources(ArtifactManager.scala:111)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$6(SQLExecution.scala:139)\n\tat org.apache.spark.sql.execution.SQLExecution$.withSQLConfPropagated(SQLExecution.scala:308)\n\tat org.apache.spark.sql.execution.SQLExecution$.$anonfun$withNewExecutionId0$1(SQLExecution.scala:138)\n\tat org.apache.spark.sql.SparkSession.withActive(SparkSession.scala:804)\n\tat org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId0(SQLExecution.scala:92)\n\tat org.apache.spark.sql.execution.SQLExecution$.withNewExecutionId(SQLExecution.scala:250)\n\tat org.apache.spark.sql.classic.Dataset.withAction(Dataset.scala:2263)\n\tat org.apache.spark.sql.classic.Dataset.collectToPython(Dataset.scala:2081)\n\tat jdk.internal.reflect.GeneratedMethodAccessor88.invoke(Unknown Source)\n\tat java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)\n\tat java.base/java.lang.reflect.Method.invoke(Method.java:569)\n\tat py4j.reflection.MethodInvoker.invoke(MethodInvoker.java:244)\n\tat py4j.reflection.ReflectionEngine.invoke(ReflectionEngine.java:374)\n\tat py4j.Gateway.invoke(Gateway.java:282)\n\tat py4j.commands.AbstractCommand.invokeMethod(AbstractCommand.java:132)\n\tat py4j.commands.CallCommand.execute(CallCommand.java:79)\n\tat py4j.ClientServerConnection.waitForCommands(ClientServerConnection.java:184)\n\tat py4j.ClientServerConnection.run(ClientServerConnection.java:108)\n\tat java.base/java.lang.Thread.run(Thread.java:840)\n", "stacktrace": [{"class": null, "method": "deco", "file": "/opt/spark/python/pyspark/errors/exceptions/captured.py", "line": "263"}, {"class": null, "method": "get_return_value", "file": "/opt/spark/python/lib/py4j-0.10.9.9-src.zip/py4j/protocol.py", "line": "327"}]}}
   >> the record that killed the task: F0126156 G4 LAX->SMF arr_delay=100000
      partition 0, record 1205
-     (0.9s)
+     (1.1s)
 ```
 
 ## 8. PerfDebug — where does the time go?
@@ -631,15 +744,12 @@ with Step("PerfDebug", "which records cost the most to process?",
           "per-record latency, attributed back to the input rows") as step:
     sample = spark.table("flights").limit(20000).coalesce(1)
     profile = bigasterisk.perfdebug(spark).profile(sample, top_k=3)
-    profile.df.createOrReplaceTempView("flights")
-    spark.sql(QUERY).collect()
+    analysis(profile.df, spark.table("carriers"), spark.table("airports")).collect()
     step.say("%d records profiled, skew %.1fx the mean" % (profile.records, profile.skew))
     for cost in profile.slowest[:3]:
         step.say("    %.3f ms  %s" % (cost.millis, flight(cost.row)))
     step.finding("at this scale the top record is task warm-up rather than data; "
                  "the attribution is what is being shown")
-
-spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("flights")
 ```
 
 ```text
@@ -648,10 +758,10 @@ spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("fligh
      question: which records cost the most to process?
      method:   per-record latency, attributed back to the input rows
 ==============================================================================
-     19999 records profiled, skew 357.8x the mean
-         0.297 ms  F0187393 B6 BWI->CLT arr_delay=21
-         0.177 ms  F0187450 HA ORD->ATL arr_delay=-21
-         0.073 ms  F0189063 HA ATL->IAH arr_delay=-5
+     19999 records profiled, skew 1125.7x the mean
+         1.057 ms  F0011955 AS MCO->AUS arr_delay=-4
+         0.286 ms  F0019999 B6 SEA->LAX arr_delay=-13
+         0.241 ms  F0000001 NK DFW->STL arr_delay=-30
   >> at this scale the top record is task warm-up rather than data; the attribution is what is being shown
      (0.4s)
 ```
@@ -666,11 +776,12 @@ with Step("Vega", "how much of the fix can reuse the last run?",
     incremental = bigasterisk.vega(spark)
     try:
         step.say("running the original...")
-        incremental.run(spark.sql(QUERY)).df.collect()
-        fixed = QUERY.replace("WHERE f.cancelled = 0",
-                              "WHERE f.cancelled = 0 AND f.arr_delay < 10000")
+        incremental.run(pipeline()).df.collect()
+        # the fix: a guard against the malformed feed rows, applied to the input
+        fixed = analysis(spark.table("flights").filter(col("arr_delay") < 10000),
+                         spark.table("carriers"), spark.table("airports"))
         step.say("running the fix (a guard against the malformed feed rows)...")
-        revised = incremental.run(spark.sql(fixed))
+        revised = incremental.run(fixed)
         revised.df.collect()
         step.finding("reused %d of %d parts (%.0f%%)"
                      % (len(revised.reused), revised.steps, revised.reuse_ratio * 100))
@@ -688,10 +799,11 @@ with Step("Vega", "how much of the fix can reuse the last run?",
 ==============================================================================
      running the original...
      running the fix (a guard against the malformed feed rows)...
-  >> reused 2 of 7 parts (29%)
-         reused: Join — INNER ON (f.carrier = c.code)
-         reused: Join — INNER ON (f.origin = o.code)
-     (2.1s)
+  >> reused 5 of 11 parts (45%)
+         reused: Project — carriers.code AS carrier_code, carriers.name AS carrier
+         reused: Join — INNER ON (flights.carrier = carrier_code)
+         reused: Project — airports.code AS origin_code
+     (2.6s)
 ```
 
 ## 10. BigTest and NaturalSym — an input per path, through the UDF
@@ -704,12 +816,16 @@ Compare the two generated records below. Same path; very different readability. 
 NaturalSym's contribution.
 
 ```python
-UDF_QUERY = "SELECT flight_id FROM flights WHERE haul(distance) = 'long'"
+def long_hauls():
+    """Long-haul flights — a filter whose whole condition lives inside a UDF."""
+    return (spark.table("flights")
+            .filter(haul(col("distance")) == "long")
+            .select(col("flight_id")))
 
 with Step("BigTest", "what input drives each path, including inside the UDF?",
           "solve the query's branch conditions; the UDF's paths are now among them") as step:
     suite = bigasterisk.testgen(spark).generate(
-        UDF_QUERY, {"flights": spark.table("flights")},
+        long_hauls(), {"flights": spark.table("flights")},
         rows_per_path=1, natural=False, seed=5)
     for case in suite.cases:
         step.say("%s" % case)
@@ -719,7 +835,7 @@ with Step("BigTest", "what input drives each path, including inside the UDF?",
 with Step("NaturalSym", "the same paths, with values that look real",
           "witnesses drawn from values that occur, shaped by a declared distribution") as step:
     natural = bigasterisk.testgen(spark).generate(
-        UDF_QUERY, {"flights": spark.table("flights")}, rows_per_path=1, natural=True,
+        long_hauls(), {"flights": spark.table("flights")}, rows_per_path=1, natural=True,
         seed=5, distributions={"distance": "normal(1200, 600)"})
     for case in natural.cases:
         step.say("%s" % case)
@@ -737,7 +853,7 @@ with Step("NaturalSym", "the same paths, with values that look real",
      [ok] ((NOT (flights.distance < 500)) AND (NOT (flights.distance < 1500)))  (verified)
     flights: [78gU6H,SFwnpt,xq6AI7,FPQRYk,NocJZC,89,92,57,1500,29]
   >> 1 of 2 verified; the condition on the UDF's result became a condition on `distance`
-     (0.1s)
+     (0.2s)
 ==============================================================================
   12. NaturalSym
      question: the same paths, with values that look real
@@ -761,15 +877,21 @@ fuzz_empty = {}
 
 with Step("BigFuzz / DepFuzz / NaturalFuzz", "what else would break this pipeline?",
           "one query, three mutation strategies") as step:
-    seeds = {"flights": spark.table("flights").limit(2000),
-             "carriers": spark.table("carriers")}
-    FUZZ_QUERY = ("SELECT c.name, COUNT(*) AS n FROM flights f "
-                  "JOIN carriers c ON f.carrier = c.code "
-                  "WHERE f.arr_delay > 60 GROUP BY c.name")
+    # The seeds have to be the DataFrames the pipeline is built from: a campaign
+    # substitutes generated rows into the plan at exactly those points.
+    sample = spark.table("flights").limit(2000)
+    carriers_table = spark.table("carriers")
+    seeds = {"flights": sample, "carriers": carriers_table}
+
+    late = (sample
+            .filter(col("arr_delay") > 60)
+            .join(carriers_table, col("carrier") == carriers_table["code"])
+            .groupBy(carriers_table["name"])
+            .agg(count("*").alias("n")))
     step.say("%-14s %10s %16s %9s" % ("strategy", "coverage", "empty results", "crashes"))
     for strategy in ("random", "natural", "co-dependent"):
         outcome = bigasterisk.fuzz(spark).fuzz(
-            FUZZ_QUERY, seeds, iterations=20, strategy=strategy, seed=1)
+            late, seeds, iterations=20, strategy=strategy, seed=1)
         fuzz_empty[strategy] = outcome.empty_results
         step.say("%-14s %9.0f%% %12d/%-3d %9d"
                  % (strategy, outcome.coverage * 100, outcome.empty_results,
@@ -785,11 +907,11 @@ with Step("BigFuzz / DepFuzz / NaturalFuzz", "what else would break this pipelin
      method:   one query, three mutation strategies
 ==============================================================================
      strategy         coverage    empty results   crashes
-     random                 0%           20/20          0
+     random               100%           20/20          0
      natural              100%            8/20          0
      co-dependent         100%            0/20          0
   >> a join key invented from nothing rarely matches, so most of the random campaign is wasted; repairing the equality fixes it
-     (0.4s)
+     (0.3s)
 ```
 
 ## What each tool answered
@@ -860,7 +982,7 @@ Then open <http://localhost:8888> and pick `airline_analysis.ipynb`. Watch <http
 
 Without a cluster, `scripts/validate-notebooks.sh airline_analysis` executes it headlessly, and [Setup](setup.md) covers the other ways in.
 
-*This page was generated from a real run on 2026-08-27. To regenerate it:*
+*This page was generated from a real run on 2026-08-28. To regenerate it:*
 
 ```bash
 scripts/render-notebook-page.py notebooks/airline_analysis.ipynb docs/notebook.md

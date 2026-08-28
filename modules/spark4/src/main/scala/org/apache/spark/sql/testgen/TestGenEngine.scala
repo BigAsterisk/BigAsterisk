@@ -10,6 +10,7 @@ import org.apache.spark.sql.catalyst.expressions._
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan
 import org.apache.spark.sql.classic.{ExpressionColumnNode, Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.execution.Rebind
 import org.apache.spark.sql.functions.max
 import org.apache.spark.sql.udf.UdfAnalysis
 import org.apache.spark.sql.types.StructType
@@ -43,10 +44,11 @@ import org.bigasterisk.api._
 class TestGenEngine extends TestGenSupport {
 
   override def generate(
-      query: String,
+      query: Query,
       seeds: Map[String, DataFrame],
       config: TestGenConfig): TestSuite = {
     require(seeds.nonEmpty, "at least one seed table is required")
+    Rebind.requireSubstitutable(query, seeds, "Test generation")
 
     val spark = seeds.head._2.sparkSession match {
       case c: ClassicSparkSession => c
@@ -69,14 +71,21 @@ class TestGenEngine extends TestGenSupport {
 
     val random = new Random(config.seed)
     val declared = config.parsedDistributions
-    val conditions = branchConditions(spark, query)
+
+    // The branch conditions to solve are read from the query over its own data. A
+    // generated input changes what flows through those branches, never which branches
+    // exist, so this analysis is done once.
+    val seedPlan = Rebind.frame(spark, query).queryExecution.analyzed
+    val textual = Query.textOf(query).isDefined
+    val conditions = branchConditions(spark, seedPlan)
     val paths = enumeratePaths(conditions, config.maxPaths)
 
     val cases = mutable.ArrayBuffer.empty[TestCase]
-    withRestoredViews(seeds) {
+    withRestoredViews(seeds, restore = textual) {
       paths.zipWithIndex.foreach { case (path, id) =>
         cases += buildCase(
-          spark, query, schemas, naturalValues, declared, random, path, id, config)
+          spark, query, seeds, textual, schemas, naturalValues, declared, random, path, id,
+          config)
       }
     }
 
@@ -88,7 +97,9 @@ class TestGenEngine extends TestGenSupport {
 
   private def buildCase(
       spark: ClassicSparkSession,
-      query: String,
+      query: Query,
+      seeds: Map[String, DataFrame],
+      textual: Boolean,
       schemas: Map[String, StructType],
       naturalValues: Map[String, IndexedSeq[Any]],
       declared: Map[String, Distribution],
@@ -129,7 +140,7 @@ class TestGenEngine extends TestGenSupport {
         if (tables.values.exists(_.isEmpty)) {
           TestCase(id, label, tables, verified = false, "no witness for some column")
         } else {
-          val (reached, note) = verify(spark, query, schemas, tables, path)
+          val (reached, note) = verify(spark, query, seeds, textual, schemas, tables, path)
           TestCase(id, label, tables, reached, note)
         }
     }
@@ -143,17 +154,24 @@ class TestGenEngine extends TestGenSupport {
    */
   private def verify(
       spark: ClassicSparkSession,
-      query: String,
+      query: Query,
+      seeds: Map[String, DataFrame],
+      textual: Boolean,
       schemas: Map[String, StructType],
       tables: Map[String, Seq[Row]],
       path: Path): (Boolean, String) = {
     try {
-      tables.foreach { case (name, rows) =>
-        spark.createDataFrame(rows.asJava, schemas(name)).createOrReplaceTempView(name)
+      val generated = tables.map { case (name, rows) =>
+        name -> spark.createDataFrame(rows.asJava, schemas(name))
       }
-      spark.sql(query).collect()
+      // Text resolves its tables by name and so needs them registered; a DataFrame is
+      // substituted in its plan, leaving the caller's session untouched.
+      if (textual) generated.foreach { case (n, df) => df.createOrReplaceTempView(n) }
 
-      val reached = reachedConditions(spark, query)
+      val current = Rebind.frame(spark, query, seeds, generated)
+      current.collect()
+
+      val reached = reachedConditions(spark, current.queryExecution.analyzed)
       val wanted = path.collect { case (c, true) => describe(c) }
       val missing = wanted.filterNot(reached.contains)
       if (missing.isEmpty) (true, "verified")
@@ -246,9 +264,9 @@ class TestGenEngine extends TestGenSupport {
    */
   private def conditionsByInput(
       spark: ClassicSparkSession,
-      query: String): Seq[(LogicalPlan, Seq[Expression])] =
+      plan: LogicalPlan): Seq[(LogicalPlan, Seq[Expression])] =
     DeSqlEngine
-      .stepNodes(spark.sql(query).queryExecution.analyzed)
+      .stepNodes(plan)
       .flatMap { node =>
         node.plan.children.headOption.map { child =>
           val own = DeSqlEngine.branchConditions(node.plan)
@@ -275,12 +293,14 @@ class TestGenEngine extends TestGenSupport {
       }
       .filter { case (_, conditions) => conditions.nonEmpty }
 
-  private def branchConditions(spark: ClassicSparkSession, query: String): Seq[Expression] =
-    conditionsByInput(spark, query).flatMap { case (_, conditions) => conditions }.distinct
+  private def branchConditions(
+      spark: ClassicSparkSession,
+      plan: LogicalPlan): Seq[Expression] =
+    conditionsByInput(spark, plan).flatMap { case (_, conditions) => conditions }.distinct
 
   /** Which branch conditions the currently registered data reaches. */
-  private def reachedConditions(spark: ClassicSparkSession, query: String): Set[String] =
-    conditionsByInput(spark, query).flatMap { case (input, conditions) =>
+  private def reachedConditions(spark: ClassicSparkSession, plan: LogicalPlan): Set[String] =
+    conditionsByInput(spark, plan).flatMap { case (input, conditions) =>
       try {
         val df = ClassicDataset.ofRows(spark, input)
         val indicators = conditions.zipWithIndex.map { case (c, i) =>
@@ -295,9 +315,10 @@ class TestGenEngine extends TestGenSupport {
       }
     }.toSet
 
-  private def withRestoredViews[A](seeds: Map[String, DataFrame])(body: => A): A =
+  private def withRestoredViews[A](seeds: Map[String, DataFrame], restore: Boolean)(
+      body: => A): A =
     try body
-    finally seeds.foreach { case (name, df) => df.createOrReplaceTempView(name) }
+    finally if (restore) seeds.foreach { case (name, df) => df.createOrReplaceTempView(name) }
 
   private def describe(e: Expression): String =
     try e.sql catch { case NonFatal(_) => e.toString }

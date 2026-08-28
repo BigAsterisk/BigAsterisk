@@ -89,6 +89,9 @@ services:
       CORES_MAX: "6"
     ports:
       - "8888:8888"
+      # The notebook's driver UI, and with it the BigAsterisk debugging tab. The driver
+      # lives in this container, so this is where 4040 is.
+      - "4040:4040"
     volumes:
       # the notebooks are mounted rather than baked in, so edits survive the container
       - ../notebooks:/opt/bigasterisk/notebooks

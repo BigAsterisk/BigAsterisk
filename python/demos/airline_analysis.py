@@ -11,7 +11,7 @@ import tempfile
 import time
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, expr
+from pyspark.sql.functions import avg, col, count, lit, substring, udf
 from pyspark.sql.types import IntegerType, StringType
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -105,9 +105,14 @@ def run(spark):
           % (flights.count(), airports.count(), carriers.count(), time.time() - started))
 
     # -----------------------------------------------------------------------
-    # The pipeline: two UDFs, three joins, one aggregation
+    # The pipeline: two Python UDFs, two joins, one aggregation
+    #
+    # Written with the DataFrame API and ordinary Python functions, because that is
+    # what a PySpark job looks like. Nothing here is arranged for the tools' benefit:
+    # they are given this pipeline and have to work with it as it is.
     # -----------------------------------------------------------------------
 
+    @udf(returnType=StringType())
     def haul(distance):
         """Route length class."""
         if distance < 500:
@@ -116,6 +121,7 @@ def run(spark):
             return "medium"
         return "long"
 
+    @udf(returnType=IntegerType())
     def adjusted_delay(arr_delay):
         """Arrival delay, with extreme values 'corrected'.
 
@@ -129,24 +135,38 @@ def run(spark):
             return -arr_delay
         return arr_delay
 
-    spark.udf.register("haul", haul, StringType())
-    spark.udf.register("adjusted_delay", adjusted_delay, IntegerType())
+    def analysis(flights, carriers, airports):
+        """Average delay per carrier and route length.
 
-    QUERY = """
-        SELECT c.name AS carrier,
-               haul(f.distance) AS haul,
-               COUNT(*) AS flights,
-               AVG(adjusted_delay(f.arr_delay)) AS avg_delay
-        FROM flights f
-        JOIN carriers c ON f.carrier = c.code
-        JOIN airports o ON f.origin = o.code
-        WHERE f.cancelled = 0
-        GROUP BY c.name, haul(f.distance)
-    """
+        Taking the three inputs as arguments is not a concession to the tools; it is
+        how a pipeline stays testable. It also happens to be exactly what several of
+        these tools want — a watchpoint or a profiler hands back a wrapped DataFrame,
+        and running the analysis over it is then a function call rather than a rewrite.
+        """
+        # `code` and `name` are in both reference tables, so each is narrowed to what
+        # this analysis needs before the join rather than disambiguated at every use.
+        named = carriers.select(col("code").alias("carrier_code"),
+                                col("name").alias("carrier"))
+        origins = airports.select(col("code").alias("origin_code"))
+
+        flown = flights.filter(col("cancelled") == 0)
+        return (flown
+                .join(named, flown["carrier"] == named["carrier_code"])
+                .join(origins, flown["origin"] == origins["origin_code"])
+                .withColumn("haul", haul(flown["distance"]))
+                .groupBy(named["carrier"], col("haul"))
+                .agg(count("*").alias("flights"),
+                     avg(adjusted_delay(flown["arr_delay"])).alias("avg_delay")))
+
+    # `spark.table(...)` rather than the DataFrames above: the tools that re-run this
+    # pipeline with substitute data find `flights` in its plan by that name.
+    def pipeline():
+        return analysis(spark.table("flights"), spark.table("carriers"),
+                        spark.table("airports"))
 
     with Step("The pipeline", "what does the analysis say?",
-              "three joins, two Python UDFs, one grouped aggregate") as step:
-        result = spark.sql(QUERY).orderBy("avg_delay")
+              "two joins, two Python UDFs, one grouped aggregate") as step:
+        result = pipeline().orderBy("avg_delay")
         rows = result.collect()
         step.say("%d (carrier, haul) groups" % len(rows))
         step.say("")
@@ -158,7 +178,7 @@ def run(spark):
                      "no airline lands an hour early on average")
 
     ORACLE = "avg_delay < -20"
-    wrong = spark.sql(QUERY).filter(ORACLE).collect()
+    wrong = pipeline().filter(ORACLE).collect()
     print("\n%d of %d groups are implausible (%s)" % (len(wrong), len(rows), ORACLE))
 
     # ---------------------------------------------------------------------------
@@ -166,7 +186,7 @@ def run(spark):
     # ---------------------------------------------------------------------------
     with Step("DeSQL", "what are the parts of this query?",
               "decompose the plan; each step can be materialised on its own") as step:
-        steps = bigasterisk.desql(spark).decompose(spark.sql(QUERY))
+        steps = bigasterisk.desql(spark).decompose(pipeline())
         for s in steps:
             step.say("[%d] %-12s %s" % (s.id, s.operator, (s.detail or "")[:58]))
         step.finding("%d steps, %d of them carrying conditional branches"
@@ -186,7 +206,7 @@ def run(spark):
         step.say("enabling capture and re-running the query...")
         lineage.enable_capture()
         try:
-            traced = spark.sql(QUERY)
+            traced = pipeline()
             outputs = lineage.collect_with_lineage(traced)
             step.say("captured lineage for %d output groups" % len(outputs))
             picked = [(row, ids) for row, ids in outputs
@@ -210,13 +230,14 @@ def run(spark):
     with Step("FlowDebug", "of those flights, which one is responsible?",
               "influence from the aggregate's semantics, plus taint through the UDF") as step:
         influence_ranked = bigasterisk.influence(spark).influencers(
-            spark.sql(QUERY), target, top_k=5)
+            pipeline(), target, top_k=5)
         ranked = influence_ranked
         for influence in ranked[:4]:
             step.say("%.4f  %s" % (influence.score, _flight(influence.row)))
         if ranked:
-            step.finding("one flight carries %.1f%% of the responsibility"
-                         % (ranked[0].score * 100))
+            step.finding("the top-ranked flight carries %.1f%% of the responsibility, "
+                         "out of %d witnesses"
+                         % (ranked[0].score * 100, len(witnesses)))
             if ranked[0].columns:
                 step.say("columns that could reach the result: %s"
                          % ", ".join(sorted(ranked[0].columns)))
@@ -252,9 +273,10 @@ def run(spark):
     clean = spark.table("flights").filter(
         # every twentieth flight, chosen by its id rather than by sampling: `sample()` depends
         # on how the file splits happen to be assigned, so it is not reproducible across runs
-        "(arr_delay IS NULL OR arr_delay < 10000) AND CAST(substring(flight_id, 2) AS INT) % 20 = 0")
+        (col("arr_delay").isNull() | (col("arr_delay") < 10000))
+        & (substring(col("flight_id"), 2, 12).cast("int") % 20 == 0))
     scoped = clean.unionByName(
-        spark.table("flights").filter("flight_id = '%s'" % culprit_id))
+        spark.table("flights").filter(col("flight_id") == culprit_id))
     scoped.write.mode("overwrite").parquet(scoped_path)
     spark.read.parquet(scoped_path).createOrReplaceTempView("flights")
     scoped_count = spark.table("flights").count()
@@ -268,7 +290,7 @@ def run(spark):
         # thousands of legitimately late flights as well as by the malformed one, and a
         # spectrum cannot separate them.
         result = bigasterisk.optdebug(spark).localize(
-            QUERY, ORACLE, base_table="flights")
+            pipeline(), ORACLE, base_table="flights")
         optdebug_result = result
         if result.minimised:
             step.say("narrowed the failing input from %d records before scoring"
@@ -291,7 +313,8 @@ def run(spark):
               "delta debugging over the provenance, re-running to check each subset") as step:
         step.say("starting from %d flights..." % scoped_count)
         outcome = bigasterisk.BigSift(spark).debug(
-            "flights", QUERY, lambda row: row["avg_delay"] is not None and row["avg_delay"] < -20)
+            "flights", pipeline(),
+            lambda row: row["avg_delay"] is not None and row["avg_delay"] < -20)
         step.say("provenance left %d candidate records" % outcome.provenance_size)
         for row in outcome.fault_inducing_rows[:3]:
             step.say("    %s" % _flight(row))
@@ -306,20 +329,21 @@ def run(spark):
     with Step("BigDebug", "can I watch the feed and survive a crash?",
               "a watchpoint on the records flowing past, and a guard that names the "
               "record that kills a task") as step:
+        # The whole change to the application: read `flights` through the watchpoint
+        # instead of directly. Because the pipeline takes its inputs as arguments, that
+        # is one substitution at the call — nothing inside the analysis moves.
         watched = bigasterisk.watchpoints(spark).watch(
             spark.table("flights"), col("arr_delay") > 10000)
-        watched.df.createOrReplaceTempView("flights")
-        spark.sql(QUERY).collect()
+        analysis(watched.df, spark.table("carriers"), spark.table("airports")).collect()
         step.say("watchpoint `%s` matched %d record(s)" % (watched.condition, watched.hits))
         for row in watched.captured[:3]:
             step.say("    %s" % _flight(row))
-        spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("flights")
 
         # a query that dies on the malformed record, and a guard that catches it
         step.say("")
         step.say("now a query that divides by the distance from that outlier...")
         guard = bigasterisk.crash_culprit(spark).guard(
-            spark.table("flights").filter("arr_delay IS NOT NULL").coalesce(1))
+            spark.table("flights").filter(col("arr_delay").isNotNull()).coalesce(1))
         previous = spark.conf.get("spark.sql.ansi.enabled")
         spark.conf.set("spark.sql.ansi.enabled", "true")
         # The failure is expected, and Spark logs a full query context for it through a
@@ -328,7 +352,9 @@ def run(spark):
         _quieten(spark, ["SQLQueryContextLogger", "org.apache.spark.scheduler.TaskSetManager"])
         spark.sparkContext.setLogLevel("OFF")
         try:
-            guard.df.selectExpr("flight_id", "100 DIV (arr_delay - 100000) AS boom").collect()
+            guard.df.select(
+                col("flight_id"),
+                (lit(100) / (col("arr_delay") - 100000)).alias("boom")).collect()
             step.say("expected a failure and did not get one")
         except Exception:
             culprit = guard.culprit
@@ -348,14 +374,12 @@ def run(spark):
               "per-record latency, attributed back to the input rows") as step:
         sample = spark.table("flights").limit(20000).coalesce(1)
         profile = bigasterisk.perfdebug(spark).profile(sample, top_k=3)
-        profile.df.createOrReplaceTempView("flights")
-        spark.sql(QUERY).collect()
+        analysis(profile.df, spark.table("carriers"), spark.table("airports")).collect()
         step.say("%d records profiled, skew %.1fx the mean" % (profile.records, profile.skew))
         for cost in profile.slowest[:3]:
             step.say("    %.3f ms  %s" % (cost.millis, _flight(cost.row)))
         step.finding("at this scale the top record is task warm-up rather than data; "
                      "the attribution is what is being shown")
-        spark.read.parquet(os.path.join(root, "flights")).createOrReplaceTempView("flights")
 
     # ---------------------------------------------------------------------------
     # 10. Vega — the next revision
@@ -365,11 +389,13 @@ def run(spark):
         incremental = bigasterisk.vega(spark)
         try:
             step.say("running the original...")
-            incremental.run(spark.sql(QUERY)).df.collect()
-            fixed = QUERY.replace("WHERE f.cancelled = 0",
-                                  "WHERE f.cancelled = 0 AND f.arr_delay < 10000")
+            incremental.run(pipeline()).df.collect()
+            # the fix: a guard against the malformed feed rows, applied to the input
+            fixed = analysis(
+                spark.table("flights").filter(col("arr_delay") < 10000),
+                spark.table("carriers"), spark.table("airports"))
             step.say("running the fix (a guard against the malformed feed rows)...")
-            revised = incremental.run(spark.sql(fixed))
+            revised = incremental.run(fixed)
             revised.df.collect()
             step.finding("reused %d of %d parts (%.0f%%)"
                          % (len(revised.reused), revised.steps, revised.reuse_ratio * 100))
@@ -381,12 +407,17 @@ def run(spark):
     # ---------------------------------------------------------------------------
     # 11. BigTest and NaturalSym — inputs that drive each path, through the UDF
     # ---------------------------------------------------------------------------
-    UDF_QUERY = "SELECT flight_id FROM flights WHERE haul(distance) = 'long'"
+    def long_hauls():
+        """Long-haul flights — a filter whose whole condition lives inside a UDF."""
+        return (spark.table("flights")
+                .filter(haul(col("distance")) == "long")
+                .select(col("flight_id")))
 
     with Step("BigTest", "what input drives each path, including inside the UDF?",
               "solve the query's branch conditions; the UDF's paths are now among them") as step:
         suite = bigasterisk.testgen(spark).generate(
-            UDF_QUERY, {"flights": spark.table("flights")}, rows_per_path=1, natural=False, seed=5)
+            long_hauls(), {"flights": spark.table("flights")},
+            rows_per_path=1, natural=False, seed=5)
         for case in suite.cases:
             step.say("%s" % case)
         step.finding("%d of %d generated inputs verified; the condition on the UDF's "
@@ -396,7 +427,7 @@ def run(spark):
     with Step("NaturalSym", "the same paths, but with values that look real",
               "witnesses drawn from values that occur, shaped by a declared distribution") as step:
         suite = bigasterisk.testgen(spark).generate(
-            UDF_QUERY, {"flights": spark.table("flights")}, rows_per_path=1, natural=True,
+            long_hauls(), {"flights": spark.table("flights")}, rows_per_path=1, natural=True,
             seed=5, distributions={"distance": "normal(1200, 600)"})
         for case in suite.cases:
             step.say("%s" % case)
@@ -409,15 +440,22 @@ def run(spark):
               "what else would break this pipeline?",
               "one query, three mutation strategies — the three papers differ in exactly "
               "where a generated value comes from") as step:
-        seeds = {"flights": spark.table("flights").limit(2000),
-                 "carriers": spark.table("carriers")}
-        FUZZ_QUERY = ("SELECT c.name, COUNT(*) AS n FROM flights f "
-                      "JOIN carriers c ON f.carrier = c.code "
-                      "WHERE f.arr_delay > 60 GROUP BY c.name")
+        # The seeds have to be the DataFrames the pipeline is built from: a campaign
+        # substitutes generated rows into the plan at exactly those points.
+        sample = spark.table("flights").limit(2000)
+        carriers_table = spark.table("carriers")
+        seeds = {"flights": sample, "carriers": carriers_table}
+
+        late = (sample
+                .filter(col("arr_delay") > 60)
+                .join(carriers_table, col("carrier") == carriers_table["code"])
+                .groupBy(carriers_table["name"])
+                .agg(count("*").alias("n")))
+
         step.say("%-14s %10s %14s %10s" % ("strategy", "coverage", "empty results", "crashes"))
         for strategy in ("random", "natural", "co-dependent"):
             outcome = bigasterisk.fuzz(spark).fuzz(
-                FUZZ_QUERY, seeds, iterations=20, strategy=strategy, seed=1)
+                late, seeds, iterations=20, strategy=strategy, seed=1)
             step.say("%-14s %9.0f%% %10d/%-3d %10d"
                      % (strategy, outcome.coverage * 100, outcome.empty_results,
                         outcome.iterations, len(outcome.failures)))

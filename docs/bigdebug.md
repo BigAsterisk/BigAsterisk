@@ -185,6 +185,49 @@ stage processes one record at a time.
     the guard itself. Express the failing computation in SQL when you need the record
     named.
 
+## The debugging tab in the Spark UI
+
+The paper's other contribution is not a primitive at all: it is that all of this is
+*interactive* — you watch a running job and inspect it, rather than adding print
+statements and submitting again. BigAsterisk puts that where a Spark user already looks,
+as a **BigAsterisk tab in the Spark UI**, next to Jobs and Stages.
+
+It costs no code. The single call that installs the tools installs the tab:
+
+```python
+spark = bigasterisk.configure(SparkSession.builder).getOrCreate()
+```
+
+Then open the driver UI — `http://localhost:4040` for a local job, or the application's
+link from the master at `http://localhost:8080` on a cluster — and pick **BigAsterisk**.
+
+| Panel | Shows | You can |
+|---|---|---|
+| Overview | which tools are attached and how many of each is live | — |
+| Watchpoints | the condition, how many records matched, and the records themselves | reset the count |
+| Breakpoints | the schema at that point, and whether the state is pinned | inspect, materialize, release |
+| Crashes | the record that killed a task, with its partition and index | — |
+| Latency | mean per-record cost, the skew, and the slowest records | — |
+| Functions | the branches and paths static analysis read inside your UDFs | — |
+
+Nothing on any panel runs a job. Each reads state the tools already hold, and only when
+a request arrives, so a job whose UI is never opened pays nothing for the tab being
+there. Inspecting a breakpoint is the one exception, and it is the exception on purpose:
+that is the operation that regenerates the state at that point, which is what a
+breakpoint is for.
+
+Under the hood the tab attaches through `SparkPlugin`, Spark's own driver-side plugin
+hook. `BigAsterisk.configure` and `bigasterisk.configure` both register it, which is why
+there is no second call to make. If you configure Spark by hand instead — naming the
+extensions on a `spark-submit` line — name the plugin there too, since nothing is
+reading the binding's `requiredConf` for you:
+
+```bash
+--conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin
+```
+
+Leave it out and everything else still works; you simply get no tab.
+
 ## The primitives
 
 The ICSE 2016 paper describes four primitives. Watchpoints port cleanly because a guard
@@ -197,6 +240,7 @@ others were built on machinery that only exists in a forked Spark:
 | On-demand watchpoints | **implemented** | guard as a Catalyst expression, matches via accumulator |
 | Crash culprit determination | **implemented** | a plan operator remembers the record in flight; an accumulator registered to survive task failure carries it back |
 | Fine-grained latency alerts | covered elsewhere in the platform | per-record cost at a chosen point |
+| Interactive inspection | **implemented** | a tab in the Spark UI, attached through `SparkPlugin` |
 
 Each was rebuilt on supported extension points rather than translated from the original
 code, which forked Spark. See

@@ -32,11 +32,17 @@ so allow several minutes. Afterwards it is cached and `up` takes seconds.
 ```
 notebooks:  http://localhost:8888   <- JupyterLab, driving this cluster
 master UI:  http://localhost:8080   (expect 3 workers registered)
+driver UI:  http://localhost:4040   <- Spark's own UI, with a BigAsterisk tab in it
 history:    http://localhost:18080
 ```
 
+The **BigAsterisk tab** appears once a notebook has started its session, and shows what
+the tools are holding while the job runs: watchpoint hits, breakpoints and their state,
+the record that killed a task, per-record latency, and what static analysis read inside
+your UDFs. It attaches itself — see [BigDebug](bigdebug.md#the-debugging-tab-in-the-spark-ui).
+
 Open <http://localhost:8888> — no token, no password — and start with
-**`airline_analysis.ipynb`** ([read it here first](notebook.md), output and all): a quarter of a million flights, three joins, two Python UDFs
+**`airline_analysis.ipynb`** ([read it here first](notebook.md), output and all): a quarter of a million flights, two joins, two Python UDFs
 and one planted fault, with all thirteen tools taking turns on it. Watch
 <http://localhost:8080> while it runs and you will see the application appear and the
 work land on the workers.
@@ -156,10 +162,13 @@ Nothing above is required to *use* BigAsterisk. It attaches to a Spark you alrea
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar,bigasterisk-optdebug.jar,fastutil.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   your-application.jar
 ```
 
-Add the extension for the tool you want — each tool's page lists its own. Spark itself is
+Add the extension for the tool you want — each tool's page lists its own. The
+`spark.plugins` line is what puts the [BigAsterisk tab](bigdebug.md#the-debugging-tab-in-the-spark-ui)
+in that application's Spark UI; drop it if you would rather not have one. Spark itself is
 never patched and never restarted with a modified build.
 
 From Python:

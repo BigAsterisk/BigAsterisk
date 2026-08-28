@@ -224,4 +224,12 @@ object BigAsterisk {
    * @group testgen
    */
   def testgen(spark: SparkSession): TestGenSupport = binding(spark).testgen
+
+  /**
+   * Re-running a query with substitute data for `spark`: what the search-based tools
+   * are built on, and what makes them work on a DataFrame and not only on SQL text.
+   *
+   * @group entry
+   */
+  def rerun(spark: SparkSession): RerunSupport = binding(spark).rerun
 }

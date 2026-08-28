@@ -37,6 +37,7 @@ Example::
 """
 
 from bigasterisk.lineage import Lineage
+from bigasterisk.query import as_query
 
 
 def ddmin(items, failing):
@@ -100,6 +101,11 @@ class BigSift:
         """Isolate the minimal ``base_table`` rows that make ``query``'s output fail
         ``test`` (a predicate on output rows; True = faulty).
 
+        ``query`` is a DataFrame — the pipeline itself — or a SQL string. Minimisation
+        re-runs it with the base table cut down, which for a DataFrame means
+        substituting into its plan, so ``base_table`` must name a table the pipeline
+        actually reads.
+
         The base table must be a file source so Titian captures its provenance, and the
         query's referenced columns must be present in the traced witnesses (the common
         single-source case). Returns a :class:`BigSiftResult`.
@@ -109,7 +115,7 @@ class BigSift:
 
         # 1. capture run -> faulty outputs
         self.lineage.enable_capture()
-        df = self.spark.sql(query)
+        df = self._frame(query)
         rows_with_ids = self.lineage.collect_with_lineage(df)
         faulty = [(r, i) for r, i in rows_with_ids if test(r)]
         if not faulty:
@@ -129,11 +135,7 @@ class BigSift:
                 return False
             sub = self.spark.createDataFrame(
                 [self._as_row(d, base_schema) for d in subset], base_schema)
-            sub.createOrReplaceTempView(base_table)
-            try:
-                return any(test(r) for r in self.spark.sql(query).collect())
-            finally:
-                base.createOrReplaceTempView(base_table)
+            return any(test(r) for r in self._rows(query, base_table, base, sub))
 
         if witnesses and reproduces(witnesses):
             cause = ddmin(witnesses, reproduces)
@@ -141,6 +143,41 @@ class BigSift:
             cause = witnesses
         base.createOrReplaceTempView(base_table)
         return BigSiftResult(cause, [r for r, _ in faulty], len(witnesses))
+
+    def _frame(self, query):
+        """``query`` as a DataFrame over its own data, whichever form it came in."""
+        if not isinstance(query, str):
+            return query
+        return self.spark.sql(query)
+
+    def _rows(self, query, base_table, base, restricted):
+        """Everything ``query`` produces when ``base_table`` holds only ``restricted``.
+
+        A query written as SQL text resolves its tables by name, so the restricted rows
+        are registered under that name and the original put back afterwards. A DataFrame
+        is already bound to its relation and cannot be redirected that way, so the
+        substitution is made in its plan instead and the session is left alone. Both go
+        through the same JVM entry point.
+        """
+        from pyspark.sql import DataFrame
+
+        jvm = self.spark._jvm
+        rerun = jvm.org.bigasterisk.api.BigAsterisk.rerun(self.spark._jsparkSession)
+        seeds = jvm.java.util.HashMap()
+        seeds.put(base_table, base._jdf)
+        substitutions = jvm.java.util.HashMap()
+        substitutions.put(base_table, restricted._jdf)
+
+        textual = isinstance(query, str)
+        if textual:
+            restricted.createOrReplaceTempView(base_table)
+        try:
+            jdf = rerun.substitutedJava(
+                self.spark._jsparkSession, as_query(query), seeds, substitutions)
+            return DataFrame(jdf, self.spark).collect()
+        finally:
+            if textual:
+                base.createOrReplaceTempView(base_table)
 
     @staticmethod
     def _as_row(d, schema):

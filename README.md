@@ -67,29 +67,29 @@ is supported where the original technique required it.
 ## Tools
 
 Status is reported honestly: **integrated** means it builds, runs, and is covered by
-tests in this repository; **partial** means some of the paper's primitives are, and the
-tool's page says which.
+tests in this repository. Where a paper's mechanism could not be carried over intact,
+the tool's page says so and says what replaced it.
 
 | Tool | What it does | Input | Status |
 |---|---|---|---|
 | [Titian](docs/titian.md) | Record-level provenance, backward and forward | application | **integrated** |
 | [BigSift](docs/bigsift.md) | Minimum failure-inducing input set (provenance + delta debugging) | output, oracle | **integrated** |
-| [BigDebug](docs/bigdebug.md) | Breakpoints, watchpoints and crash-culprit determination over distributed intermediate data | application | **integrated** |
-| [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **partial** — influence; UDF taint pending |
-| [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **partial** — UDF internals stay opaque |
+| [BigDebug](docs/bigdebug.md) | Breakpoints, watchpoints, crash-culprit determination, and a debugging tab in the Spark UI | application | **integrated** |
+| [FlowDebug](docs/flowdebug.md) | Influence-based provenance, taint propagated inside UDFs | application | **integrated** — Python UDFs read from source, Scala/Java from bytecode |
+| [OptDebug](docs/optdebug.md) | Code-space fault isolation: ranks the operations behind a wrong result | output, oracle | **integrated** — branches inside UDFs are scored as operations |
 | [PerfDebug](docs/perfdebug.md) | Attributes computation skew to the records causing it | execution metrics | **integrated** |
 | [DeSQL](docs/desql.md) | Step-through SQL debugging via automated query decomposition | SQL query | **integrated** |
 | [Vega](docs/vega.md) | Incremental re-execution across successive query revisions | query history | **integrated** — reimplemented from the paper |
-| [BigTest](docs/testgen.md) | Symbolic execution over dataflow operators and UDFs | application | **partial** — SQL predicates; UDF bytecode pending |
+| [BigTest](docs/testgen.md) | Symbolic execution over dataflow operators and UDFs | application | **integrated** — a UDF's own paths are among the solved conditions |
 | [BigFuzz](docs/fuzzing.md) | Fuzzing via framework abstraction | application | **integrated** |
 | [DepFuzz](docs/fuzzing.md) | Co-dependence-aware mutation, so inputs survive joins across tables | input data | **integrated** |
 | [NaturalFuzz](docs/fuzzing.md) | Splices existing rows and columns into realistic inputs | input data | **integrated** |
 | [NaturalSym](docs/testgen.md) | Symbolic execution that generates natural, distribution-aware inputs | application | **integrated** |
 
-All thirteen now run: ten are complete, three reproduce part of their paper. Each
-partial tool's page states plainly which part, and why the rest is outstanding — in
-several cases the missing piece is what required a forked Spark, a JDK 8 symbolic
-execution engine, or a benchmark suite that no longer exists. Every tool records the
+All thirteen now run, and each tool's page states plainly where the implementation
+departs from its paper and why — in several cases the original mechanism required a
+forked Spark, a JDK 8 symbolic execution engine, or a benchmark suite that no longer
+exists, and was rebuilt on a supported extension point instead. Every tool records the
 upstream repository and commit it derives from in
 [PROVENANCE.md](PROVENANCE.md), and documents any deviation from the published
 technique.
@@ -129,7 +129,7 @@ scripts/cluster.sh down
 ```
 
 **[The worked example](https://bigasterisk.github.io/BigAsterisk/notebook/)** —
-readable in a browser with all its output, no install — is the fullest demonstration: a quarter of a million flights, three joins, two Python UDFs, and one
+readable in a browser with all its output, no install — is the fullest demonstration: a quarter of a million flights, two joins, two Python UDFs, and one
 fault planted where it makes the answer look *almost* right. Thirteen tools take turns on
 it, each narrating what it is doing — the question narrows from "something is wrong" to
 "this record, and this branch of this function".
@@ -168,12 +168,39 @@ planted fault and lets each tool answer a different question about it:
 
 Each tool answers one question about the failure, in its own terms.
 
+### Two lines in your application, the rest in the browser
+
+Attaching the platform is one call. It also installs a **BigAsterisk tab in the Spark
+UI**, next to Jobs and Stages, so watchpoint hits, breakpoints, the record that killed a
+task, per-record latency and what was read inside your UDFs are all visible while the
+job runs — no print statements, no second submission:
+
+```python
+import bigasterisk
+spark = bigasterisk.configure(SparkSession.builder).getOrCreate()
+```
+
+The tools take your pipeline as it is. A DataFrame is a query:
+
+```python
+result = flights.filter(col("cancelled") == 0).groupBy("carrier").agg(avg("delay"))
+
+bigasterisk.desql(spark).decompose(result)            # its steps, each runnable
+bigasterisk.influence(spark).influencers(result, "avg_delay < -20")
+bigasterisk.fuzz(spark).fuzz(result, {"flights": flights})
+```
+
+Nothing has to be rewritten as a SQL string first — including for the tools that re-run
+your query hundreds of times with data of their own. See
+[docs/usage.md](docs/usage.md).
+
 To use BigAsterisk from your own application:
 
 ```bash
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.bigdebug.BigDebugExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   your-app.jar
 ```
 

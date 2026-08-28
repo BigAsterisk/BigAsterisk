@@ -34,6 +34,15 @@ for case in suite.cases:
     print(case)
 ```
 
+!!! tip "A DataFrame works here too"
+
+    The first argument may be the DataFrame pipeline itself rather than SQL text.
+    Generation runs each candidate input through the query to check the path was
+    actually taken, which for a DataFrame means substituting into its plan — so each
+    seed must be the DataFrame the pipeline was built from, or a table it reads under
+    that name. See [Usage](usage.md#a-dataframe-is-a-query).
+
+
 ```
 [ok] (amount > 100)  (verified)
     orders: [o1,c1,420]

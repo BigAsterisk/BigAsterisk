@@ -56,6 +56,7 @@ distribution that `bin/bootstrap` unpacks at `tools/spark-4.1.2-bin-hadoop3`. Se
 spark-submit \
   --jars bigasterisk-api.jar,bigasterisk-spark4.jar,bigasterisk-bigsift.jar,fastutil.jar \
   --conf spark.sql.extensions=org.apache.spark.sql.lineage.TitianSQLExtension,org.apache.spark.sql.bigdebug.BigDebugExtension \
+  --conf spark.plugins=org.bigasterisk.spark4.BigAsteriskPlugin \
   your-app.jar
 ```
 
@@ -81,7 +82,7 @@ binding is selected.
 There is a notebook for each tool in `notebooks/`, plus deeper dives into the SQL and RDD
 surfaces and one (`python_udfs.ipynb`) on reading inside a Python UDF.
 
-**Start with `airline_analysis.ipynb`** — a quarter of a million flights, three joins, two
+**Start with `airline_analysis.ipynb`** — a quarter of a million flights, two joins, two
 Python UDFs and one planted fault, with all thirteen tools taking turns on it. Each states
 its question, its method and what it found, so it reads as an investigation rather than a
 feature list. Each one runs on the committed fixtures and ends in assertions,

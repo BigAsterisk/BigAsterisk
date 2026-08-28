@@ -5,6 +5,7 @@ import org.apache.spark.sql.lineage.{TitianSQL, TraceCursor => TitianCursor}
 
 import org.apache.spark.sql.bigdebug.{BreakpointEngine, CrashCulpritEngine}
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.execution.Spark4Rerun
 import org.apache.spark.sql.fuzz.FuzzEngine
 import org.apache.spark.sql.influence.InfluenceEngine
 import org.apache.spark.sql.perfdebug.PerfDebugEngine
@@ -12,7 +13,7 @@ import org.apache.spark.sql.testgen.TestGenEngine
 import org.apache.spark.sql.vega.VegaEngine
 import org.apache.spark.sql.watchpoint.Spark4Watchpoints
 
-import org.bigasterisk.api.{BreakpointSupport, CrashCulpritSupport, DeSqlSupport, FuzzSupport, InfluenceSupport, LineageSupport, PerfDebugSupport, SparkBinding, TestGenSupport, TraceCursor, VegaSupport, WatchpointSupport}
+import org.bigasterisk.api.{BreakpointSupport, CrashCulpritSupport, DeSqlSupport, FuzzSupport, InfluenceSupport, LineageSupport, PerfDebugSupport, RerunSupport, SparkBinding, TestGenSupport, TraceCursor, VegaSupport, WatchpointSupport}
 
 /**
  * The BigAsterisk binding for Apache Spark 4.x.
@@ -61,6 +62,8 @@ class Spark4Binding extends SparkBinding {
   override val fuzz: FuzzSupport = new FuzzEngine
 
   override val testgen: TestGenSupport = new TestGenEngine
+
+  override val rerun: RerunSupport = new Spark4Rerun
 }
 
 object Spark4Binding {

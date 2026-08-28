@@ -29,6 +29,7 @@ case "${1:-up}" in
     echo
     echo "notebooks:  http://localhost:8888   <- JupyterLab, driving this cluster"
     echo "master UI:  http://localhost:8080   (expect $workers workers registered)"
+    echo "driver UI:  http://localhost:4040   <- the BigAsterisk tab, once a notebook runs"
     echo "history:    http://localhost:18080"
     echo
     echo "Then open airline_analysis.ipynb, or: scripts/cluster.sh tour"

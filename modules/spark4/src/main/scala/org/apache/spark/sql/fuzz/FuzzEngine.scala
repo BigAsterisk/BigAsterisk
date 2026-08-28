@@ -10,6 +10,7 @@ import org.apache.spark.sql.catalyst.expressions.{AttributeReference, EqualTo, E
 import org.apache.spark.sql.catalyst.plans.logical.{Join, LogicalPlan}
 import org.apache.spark.sql.classic.{ExpressionColumnNode, Dataset => ClassicDataset, SparkSession => ClassicSparkSession}
 import org.apache.spark.sql.desql.DeSqlEngine
+import org.apache.spark.sql.execution.Rebind
 import org.apache.spark.sql.functions.max
 import org.apache.spark.sql.types.StructType
 
@@ -36,8 +37,9 @@ import org.bigasterisk.api._
  */
 class FuzzEngine extends FuzzSupport {
 
-  override def fuzz(query: String, seeds: Map[String, DataFrame], config: FuzzConfig): FuzzResult = {
+  override def fuzz(query: Query, seeds: Map[String, DataFrame], config: FuzzConfig): FuzzResult = {
     require(seeds.nonEmpty, "at least one seed table is required")
+    Rebind.requireSubstitutable(query, seeds, "Fuzzing")
 
     val spark = seeds.head._2.sparkSession match {
       case c: ClassicSparkSession => c
@@ -50,12 +52,17 @@ class FuzzEngine extends FuzzSupport {
     }
 
     val schemas = seeds.map { case (name, df) => name -> df.schema }
-    val pools = poolsFor(seeds, query, spark, config.strategy)
-    val random = new Random(config.seed)
 
-    // Branch targets are read from the query as analysed against the seed tables, so
-    // the denominator does not move as generated data changes.
-    val targets = branchTargets(spark, query)
+    // The query as it stands over the seed data. Everything the campaign measures
+    // against — the branch targets, the value pools, the plan the interpreter walks —
+    // is read from this one analysis, so the denominator does not move as generated
+    // data changes underneath it.
+    val seedPlan = Rebind.frame(spark, query).queryExecution.analyzed
+    val textual = Query.textOf(query).isDefined
+
+    val pools = poolsFor(seeds, seedPlan, config.strategy)
+    val random = new Random(config.seed)
+    val targets = branchTargets(seedPlan)
 
     val covered = mutable.LinkedHashSet.empty[String]
     val failures = mutable.ArrayBuffer.empty[FuzzFailure]
@@ -68,10 +75,7 @@ class FuzzEngine extends FuzzSupport {
     // no scheduling and no task setup per iteration — and no re-analysis either.
     val abstraction: Option[(LogicalPlan, Map[String, String])] =
       if (!config.abstractFramework) None
-      else {
-        val analyzed = spark.sql(query).queryExecution.analyzed
-        LocalDataflow.leafTables(analyzed, schemas).map(analyzed -> _)
-      }
+      else LocalDataflow.leafTables(seedPlan, schemas).map(seedPlan -> _)
 
     // Profile once: which regions decide which branch, what each seed row does at each
     // branch, and which datasets the joins tie together. Both splicing strategies work
@@ -79,9 +83,8 @@ class FuzzEngine extends FuzzSupport {
     val profile: Option[Profile] =
       if (config.strategy == MutationStrategy.Random) None
       else {
-        val analyzed = spark.sql(query).queryExecution.analyzed
-        LocalDataflow.leafTables(analyzed, schemas).map { leafToTable =>
-          val influences = BranchProfiler.influences(analyzed, targets, leafToTable)
+        LocalDataflow.leafTables(seedPlan, schemas).map { leafToTable =>
+          val influences = BranchProfiler.influences(seedPlan, targets, leafToTable)
           val reduced = seeds.map { case (table, df) =>
             val rows = df.collect().toSeq
             val vectors = BranchProfiler.pathVectors(table, rows, df.schema, influences)
@@ -89,7 +92,7 @@ class FuzzEngine extends FuzzSupport {
             // same way are interchangeable, so the rest is search space for nothing
             table -> BranchProfiler.minimise(rows, vectors, config.rowsPerVector)
           }
-          Profile(influences, reduced, BranchProfiler.joinConstraints(analyzed, leafToTable))
+          Profile(influences, reduced, BranchProfiler.joinConstraints(seedPlan, leafToTable))
         }
       }
 
@@ -101,7 +104,7 @@ class FuzzEngine extends FuzzSupport {
     // keeps — so they displace the merely-early ones once the budget is full.
     val samples = mutable.ArrayBuffer.empty[FuzzSample]
 
-    withRestoredViews(spark, seeds) {
+    withRestoredViews(seeds, restore = textual) {
       var i = 0
       while (i < config.iterations) {
         val candidate = generate(schemas, pools, corpus, config, random, profile, covered)
@@ -114,8 +117,12 @@ class FuzzEngine extends FuzzSupport {
         val (failed, empty, reached) = outcome match {
           case Some(result) => abstracted += 1; result
           case None =>
-            registerViews(spark, candidate, schemas)
-            runOnSpark(spark, query, targets)
+            val substitutions = framesOf(spark, candidate, schemas)
+            // A query given as text resolves its tables by name, so the generated data
+            // has to be registered under those names. A query given as a DataFrame is
+            // substituted in its plan instead, and the session is left alone.
+            if (textual) substitutions.foreach { case (n, df) => df.createOrReplaceTempView(n) }
+            runOnSpark(spark, Rebind.frame(spark, query, seeds, substitutions), targets)
         }
 
         failed.foreach { message =>
@@ -180,11 +187,11 @@ class FuzzEngine extends FuzzSupport {
   /** One iteration the ordinary way, against the registered views. */
   private def runOnSpark(
       spark: ClassicSparkSession,
-      query: String,
+      current: DataFrame,
       targets: Seq[(LogicalPlan, Seq[Expression])]): Iteration =
     try {
-      val rows = spark.sql(query).collect()
-      (None, rows.isEmpty, coverageOf(spark, query, targets))
+      val rows = current.collect()
+      (None, rows.isEmpty, coverageOf(spark, current.queryExecution.analyzed, targets))
     } catch {
       case NonFatal(e) => (Some(s"${e.getClass.getSimpleName}: ${e.getMessage}"), false, Set.empty)
     }
@@ -195,17 +202,18 @@ class FuzzEngine extends FuzzSupport {
    * The campaign works by swapping generated data in under the query's own table names,
    * so leaving the session pointing at the last candidate would be a nasty surprise.
    */
-  private def withRestoredViews[A](spark: ClassicSparkSession, seeds: Map[String, DataFrame])(
+  private def withRestoredViews[A](seeds: Map[String, DataFrame], restore: Boolean)(
       body: => A): A =
     try body
-    finally seeds.foreach { case (name, df) => df.createOrReplaceTempView(name) }
+    finally if (restore) seeds.foreach { case (name, df) => df.createOrReplaceTempView(name) }
 
-  private def registerViews(
+  /** One candidate input as DataFrames, under the seed table names. */
+  private def framesOf(
       spark: ClassicSparkSession,
       tables: Map[String, Seq[Row]],
-      schemas: Map[String, StructType]): Unit =
-    tables.foreach { case (name, rows) =>
-      spark.createDataFrame(rows.asJava, schemas(name)).createOrReplaceTempView(name)
+      schemas: Map[String, StructType]): Map[String, DataFrame] =
+    tables.map { case (name, rows) =>
+      name -> spark.createDataFrame(rows.asJava, schemas(name))
     }
 
   /**
@@ -443,8 +451,7 @@ class FuzzEngine extends FuzzSupport {
    */
   private def poolsFor(
       seeds: Map[String, DataFrame],
-      query: String,
-      spark: ClassicSparkSession,
+      seedPlan: LogicalPlan,
       strategy: MutationStrategy): Map[(String, String), ValuePool] = {
 
     if (strategy == MutationStrategy.Random) return Map.empty
@@ -457,7 +464,7 @@ class FuzzEngine extends FuzzSupport {
 
     if (strategy != MutationStrategy.CoDependent) return perColumn
 
-    val linked = FuzzEngine.joinedColumnNames(spark.sql(query).queryExecution.analyzed)
+    val linked = FuzzEngine.joinedColumnNames(seedPlan)
     if (linked.isEmpty) return perColumn
 
     // Union the pools of every column whose name participates in a join equality. Names
@@ -477,11 +484,9 @@ class FuzzEngine extends FuzzSupport {
   }
 
   /** Branch conditions of the query, grouped by the plan they are evaluated against. */
-  private def branchTargets(
-      spark: ClassicSparkSession,
-      query: String): Seq[(LogicalPlan, Seq[Expression])] =
+  private def branchTargets(plan: LogicalPlan): Seq[(LogicalPlan, Seq[Expression])] =
     DeSqlEngine
-      .stepNodes(spark.sql(query).queryExecution.analyzed)
+      .stepNodes(plan)
       .flatMap { node =>
         val conditions = DeSqlEngine.branchConditions(node.plan).flatMap(refine)
         if (conditions.isEmpty) None else Some(node.plan.children.head -> conditions.distinct)
@@ -512,13 +517,13 @@ class FuzzEngine extends FuzzSupport {
    */
   private def coverageOf(
       spark: ClassicSparkSession,
-      query: String,
+      currentPlan: LogicalPlan,
       targets: Seq[(LogicalPlan, Seq[Expression])]): Set[String] = {
     if (targets.isEmpty) return Set.empty
 
-    // Re-analyse against the current data: the plans in `targets` were resolved against
-    // the seed views and no longer refer to the registered relations.
-    val current = branchTargets(spark, query)
+    // Read the branches off the plan that just ran: the plans in `targets` were
+    // resolved against the seed data and no longer refer to the rows in play.
+    val current = branchTargets(currentPlan)
 
     current.flatMap { case (input, conditions) =>
       try {

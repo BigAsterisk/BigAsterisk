@@ -108,29 +108,53 @@ _SPARK4_EXTENSIONS = (
     "org.apache.spark.sql.perfdebug.PerfDebugExtension",
 )
 
+#: The ``spark.plugins`` entry that attaches the BigAsterisk tab to the Spark UI,
+#: mirroring ``Spark4Binding.requiredConf``. Like the extensions, this has to be on the
+#: builder: a driver plugin is instantiated while the SparkContext is being created.
+_SPARK4_PLUGINS = ("org.bigasterisk.spark4.BigAsteriskPlugin",)
 
-def configure(builder, extensions=_SPARK4_EXTENSIONS):
-    """Add the BigAsterisk SQL extensions to a ``SparkSession.Builder``.
 
-    Spark reads ``spark.sql.extensions`` when the session is built, so this must be
-    called before ``getOrCreate()``. Any extensions already configured on the builder
-    are preserved — this appends rather than replaces.
+def _appended(builder, key, values):
+    """``builder`` with ``values`` added to the comma-separated setting ``key``.
+
+    Appending rather than replacing, because a caller may have configured extensions or
+    plugins of their own and silently dropping them would be a poor trade for a
+    debugging tool.
+    """
+    # `_options` is PySpark-internal; fall back to appending blind if it ever moves,
+    # which is still correct for the common case of nothing else being configured.
+    options = getattr(builder, "_options", None)
+    existing = options.get(key, "") if isinstance(options, dict) else ""
+    entries = [e.strip() for e in str(existing).split(",") if e.strip()]
+    for value in values:
+        if value not in entries:
+            entries.append(value)
+    return builder.config(key, ",".join(entries))
+
+
+def configure(builder, extensions=_SPARK4_EXTENSIONS, plugins=_SPARK4_PLUGINS):
+    """Add BigAsterisk to a ``SparkSession.Builder``.
+
+    This installs two things: the SQL extensions the tools capture through, and the
+    driver plugin that attaches the BigAsterisk tab to the Spark UI. Both are read while
+    the session is being built, so this must be called before ``getOrCreate()``.
+    Anything already configured on the builder is preserved — this appends rather than
+    replaces.
 
     Returns the builder, so it chains::
 
         spark = bigasterisk.configure(SparkSession.builder.master("local[*]")).getOrCreate()
+
+    The tab then lives at ``/bigasterisk/`` on the driver's Spark UI —
+    ``spark.sparkContext.uiWebUrl`` — and shows what the tools are holding while a job
+    runs. Pass ``plugins=()`` to leave the UI alone.
     """
     if isinstance(extensions, str):
         extensions = (extensions,)
-    # `_options` is PySpark-internal; fall back to appending blind if it ever moves,
-    # which is still correct for the common case of nothing else being configured.
-    options = getattr(builder, "_options", None)
-    existing = options.get("spark.sql.extensions", "") if isinstance(options, dict) else ""
-    entries = [e.strip() for e in str(existing).split(",") if e.strip()]
-    for extension in extensions:
-        if extension not in entries:
-            entries.append(extension)
-    return builder.config("spark.sql.extensions", ",".join(entries))
+    if isinstance(plugins, str):
+        plugins = (plugins,)
+    builder = _appended(builder, "spark.sql.extensions", extensions)
+    return _appended(builder, "spark.plugins", plugins)
 
 
 

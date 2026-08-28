@@ -73,6 +73,9 @@ trait SparkBinding {
   /** Systematic test-input generation for this Spark version. */
   def testgen: TestGenSupport
 
+  /** Re-running a query with substitute data, for this Spark version. */
+  def rerun: RerunSupport
+
   /**
    * Verifies the binding can actually attach to `spark`, throwing a descriptive
    * exception if not — for example when the session was built without

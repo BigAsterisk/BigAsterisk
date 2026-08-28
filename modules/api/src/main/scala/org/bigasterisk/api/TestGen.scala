@@ -156,10 +156,10 @@ trait TestGenSupport {
    * @param seeds the tables the query reads, by the name it reads them under. Schemas
    *        are required; rows are used as the pool of natural witnesses.
    */
-  def generate(query: String, seeds: Map[String, DataFrame], config: TestGenConfig): TestSuite
+  def generate(query: Query, seeds: Map[String, DataFrame], config: TestGenConfig): TestSuite
 
   /** Generates a suite with the default configuration. */
-  final def generate(query: String, seeds: Map[String, DataFrame]): TestSuite =
+  final def generate(query: Query, seeds: Map[String, DataFrame]): TestSuite =
     generate(query, seeds, TestGenConfig())
 
   /**
@@ -167,7 +167,7 @@ trait TestGenSupport {
    * Java, and Py4J, which marshals a Python dict to `java.util.Map`.
    */
   final def generateJava(
-      query: String,
+      query: AnyRef,
       seeds: java.util.Map[String, DataFrame],
       maxPaths: Int,
       rowsPerPath: Int,
@@ -175,7 +175,7 @@ trait TestGenSupport {
       seed: Long,
       distributions: java.util.Map[String, String]): TestSuite = {
     import scala.jdk.CollectionConverters._
-    generate(query, seeds.asScala.toMap,
+    generate(Query.of(query), seeds.asScala.toMap,
       TestGenConfig(maxPaths, rowsPerPath, natural, seed, distributions.asScala.toMap))
   }
 }

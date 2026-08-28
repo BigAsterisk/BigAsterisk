@@ -20,6 +20,7 @@ class BindingSelectionSuite extends AnyFunSuite with Matchers {
     def influence: InfluenceSupport = throw new UnsupportedOperationException
     def fuzz: FuzzSupport = throw new UnsupportedOperationException
     def testgen: TestGenSupport = throw new UnsupportedOperationException
+    def rerun: RerunSupport = throw new UnsupportedOperationException
     def validate(spark: SparkSession): Unit = ()
   }
 
