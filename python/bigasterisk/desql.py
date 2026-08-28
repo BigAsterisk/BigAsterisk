@@ -74,6 +74,17 @@ class QueryStep:
         return [j.apply(i) for i in range(j.size())]
 
     @property
+    def schema(self):
+        """The schema of this step's intermediate result, as a PySpark ``StructType``.
+
+        Read from the plan, so it costs nothing: asking what a step produces does not
+        run it.
+        """
+        import json as _json
+        from pyspark.sql.types import StructType
+        return StructType.fromJson(_json.loads(self._j.schema().json()))
+
+    @property
     def plan(self):
         """The whole sub-query this step computes, as a plan tree.
 

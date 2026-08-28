@@ -33,7 +33,10 @@ class Spark4Binding extends SparkBinding {
   override def sparkVersions: String = "[4.0.0,5.0.0)"
 
   override def requiredConf: Map[String, String] = Map(
-    "spark.sql.extensions" -> Spark4Binding.extensionClassNames.mkString(",")
+    "spark.sql.extensions" -> Spark4Binding.extensionClassNames.mkString(","),
+    // The UI tab attaches itself through Spark's plugin API, so installing the bindings
+    // installs the debugging surface with them — no second call for a user to remember.
+    "spark.plugins" -> "org.bigasterisk.spark4.BigAsteriskPlugin"
   )
 
   override def validate(spark: SparkSession): Unit =
