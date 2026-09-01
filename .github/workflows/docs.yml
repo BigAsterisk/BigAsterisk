@@ -62,7 +62,7 @@ jobs:
       # already been built strictly by this point, so publication is allowed to be
       # skipped with a warning rather than failing the workflow on every push.
       - id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
         continue-on-error: true
         with:
           enablement: true
