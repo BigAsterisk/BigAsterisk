@@ -85,7 +85,7 @@ jobs:
       # from this run's summary page.
       - name: Upload the site as a downloadable artifact
         if: steps.pages.outcome == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-site
           path: site
