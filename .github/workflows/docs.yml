@@ -38,7 +38,7 @@ jobs:
       - name: Set up sbt
         uses: sbt/setup-sbt@v1
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
